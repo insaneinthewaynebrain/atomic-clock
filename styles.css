@@ -115,8 +115,12 @@ select.input {
 .clk-wake { font-size: 12px; color: #626b7f; margin-top: 4px; min-height: 16px; }
 
 /* ---------- Tracker ---------- */
-.watch-select { font-weight: 700; font-size: 17px; }
-.watch-tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.watch-bar { display: flex; gap: 6px; align-items: center; }
+.watch-select { flex: 1; min-width: 0; font-weight: 700; font-size: 17px; }
+.mark-row { display: grid; grid-template-columns: 76px 1fr 1fr; gap: 8px; margin-top: 12px; }
+.mark-row .input { font-size: 22px; font-weight: 700; min-height: 56px; text-align: center; text-align-last: center; padding-right: 26px; }
+.mark-btn { min-height: 56px; font-size: 18px; }
+.mark-help { margin: 6px 2px 0; }
 .actions2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
 .actions2 .btn { padding: 10px 8px; }
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }

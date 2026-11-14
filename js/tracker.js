@@ -109,64 +109,26 @@ async function deleteWatch(w) {
   render();
 }
 
-async function justSet(w) {
+// Mark: save the chosen +/- seconds against the exact synced time of the tap.
+function mark(w, sign, secs) {
   const s = stamp();
-  const ok = await confirmModal('Start a new tracking run?',
-    `Logs “${w.name}” as exactly on time (0 s) at ${fmtDateTime(s.t)}${s.synced ? '' : ' (warning: not network-synced)'}.`,
-    'Start run');
-  if (!ok) return;
-  w.runs.push({ id: store.uid(), readings: [{ id: store.uid(), offset: 0, ...s }] });
+  const offset = sign * secs;
+  const reading = { id: store.uid(), offset, ...s };
+  const runs = w.runs.filter((r) => r.readings.length);
+  if (!runs.length) w.runs.push({ id: store.uid(), readings: [reading] });
+  else {
+    const last = (r) => Math.max(...r.readings.map((x) => x.t));
+    runs.reduce((x, y) => (last(y) > last(x) ? y : x)).readings.push(reading);
+  }
   store.save();
-  toast('New run started');
+  toast(`Marked ${fmtSignedSecs(offset)} at ${fmtDateTime(s.t).split(' ').pop()}${s.synced ? '' : ' (not synced)'}`);
   render();
 }
 
-function logReading(w) {
-  const s = stamp();   // captured the moment the button is tapped
-  let dir = 1;
-  const fastBtn = el('button', { type: 'button', class: 'seg-btn active' }, 'Fast');
-  const slowBtn = el('button', { type: 'button', class: 'seg-btn' }, 'Slow');
-  const setDir = (v) => { dir = v; fastBtn.classList.toggle('active', v > 0); slowBtn.classList.toggle('active', v < 0); };
-  fastBtn.onclick = () => setDir(1);
-  slowBtn.onclick = () => setDir(-1);
-  const opts = (n, unit) => Array.from({ length: n }, (_, i) => el('option', { value: String(i) }, `${i} ${unit}`));
-  const minSel = el('select', { class: 'input' }, opts(60, 'min'));
-  const secSel = el('select', { class: 'input' }, opts(60, 's'));
-  const hasRun = w.runs.some((r) => r.readings.length);
-  openModal({
-    title: `Log a reading — ${w.name}`,
-    content: [
-      el('p', { class: 'muted small' }, `Time captured: ${fmtDateTime(s.t)}${s.synced ? ` (synced ±${s.acc} ms)` : ' (not synced)'}`),
-      el('div', { class: 'seg' }, fastBtn, slowBtn),
-      el('div', { class: 'row2' },
-        el('label', { class: 'field' }, el('span', {}, 'Minutes'), minSel),
-        el('label', { class: 'field' }, el('span', {}, 'Seconds'), secSel)),
-      hasRun ? null : el('p', { class: 'muted small' }, 'No run yet: this reading will start one. Rates appear from the second reading.'),
-    ],
-    actions: [
-      { label: 'Cancel' },
-      {
-        label: 'Save', kind: 'primary',
-        onClick: () => {
-          const offset = dir * (Number(minSel.value) * 60 + Number(secSel.value));
-          const reading = { id: store.uid(), offset, ...s };
-          const runs = w.runs.filter((r) => r.readings.length);
-          if (!runs.length) w.runs.push({ id: store.uid(), readings: [reading] });
-          else {
-            const cur = runs.reduce((a, b) => (Math.max(...b.readings.map((x) => x.t)) > Math.max(...a.readings.map((x) => x.t)) ? b : a));
-            cur.readings.push(reading);
-          }
-          store.save();
-          toast('Reading saved');
-          render();
-        },
-      },
-    ],
-  });
-}
+function fmtSignedSecs(o) { return o === 0 ? '0 s' : `${signed(o)} s`; }
 
 async function deleteReading(w, runId, readingId) {
-  const ok = await confirmModal('Delete this reading?', 'Rates will be recalculated without it.', 'Delete', true);
+  const ok = await confirmModal('Delete this mark?', 'Rates will be recalculated without it.', 'Delete', true);
   if (!ok) return;
   const run = w.runs.find((r) => r.id === runId);
   if (!run) return;
@@ -198,58 +160,60 @@ export function render() {
   const w = selected();
   if (d.selectedWatchId !== w.id) { d.selectedWatchId = w.id; store.save(); }
 
+  // Watch picker + small manage buttons
   const sel = el('select', {
-    class: 'input watch-select', 'aria-label': 'Selected watch',
+    class: 'input watch-select', 'aria-label': 'Watch',
     onchange: (e) => { d.selectedWatchId = e.target.value; store.save(); render(); },
   }, d.watches.map((x) => el('option', { value: x.id, selected: x.id === w.id }, x.name)));
+  box.append(el('div', { class: 'watch-bar' }, sel,
+    el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Add watch', title: 'Add watch', onclick: addWatch }, '+'),
+    el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Rename watch', title: 'Rename', onclick: () => renameWatch(w) }, '✎'),
+    el('button', { type: 'button', class: 'icon-btn sm danger', 'aria-label': 'Delete watch', title: 'Delete', onclick: () => deleteWatch(w) }, '🗑')));
 
-  box.append(sel, el('div', { class: 'watch-tools' },
-    el('button', { type: 'button', class: 'btn sm', 'aria-label': 'Add watch', onclick: addWatch }, '+ Add'),
-    el('button', { type: 'button', class: 'btn sm', 'aria-label': 'Rename watch', onclick: () => renameWatch(w) }, '✎ Rename'),
-    el('button', { type: 'button', class: 'btn sm danger', 'aria-label': 'Delete watch', onclick: () => deleteWatch(w) }, '🗑 Delete')));
-
-  box.append(el('div', { class: 'actions2' },
-    el('button', { type: 'button', class: 'btn primary', onclick: () => justSet(w) }, 'I’ve just set this watch'),
-    el('button', { type: 'button', class: 'btn', onclick: () => logReading(w) }, 'Log a reading')));
+  // Mark row: [+/-] [0..60 s] [Mark]
+  const signSel = el('select', { class: 'input mark-sign', 'aria-label': 'Plus (fast) or minus (slow)' },
+    el('option', { value: '1' }, '+'), el('option', { value: '-1' }, '\u2212'));
+  const secSel = el('select', { class: 'input mark-secs', 'aria-label': 'Seconds' },
+    Array.from({ length: 61 }, (_, i) => el('option', { value: String(i) }, `${i} s`)));
+  box.append(
+    el('div', { class: 'mark-row' }, signSel, secSel,
+      el('button', { type: 'button', class: 'btn primary mark-btn', onclick: () => mark(w, Number(signSel.value), Number(secSel.value)) }, 'Mark')),
+    el('p', { class: 'muted small mark-help' }, '+ = watch ahead of the clock (fast), \u2212 = behind (slow).'));
 
   const st = watchStats(w);
-  const { green, amber } = d.thresholds;
-  const grid = el('div', { class: 'stats' },
-    stat('Latest offset', st.latest ? fmtOffset(st.latest.offset) : '—', st.latest ? fmtDateTime(st.latest.t) : 'no readings yet'),
-    stat('Since last reading', fmtRate(st.lastRate), st.lastElapsed ? `over ${fmtDuration(st.lastElapsed)}` : 'needs 2 readings'),
-    stat('Average this run', fmtRate(st.runAvg), st.cur && st.cur.spanDays > 0 ? `over ${fmtDuration(st.cur.spanDays * DAY)}` : 'needs 2 readings', rateClass(st.runAvg)),
-    stat('Overall average', fmtRate(st.overall), st.overallDays > 0 ? `${st.runs.length} run${st.runs.length > 1 ? 's' : ''}, ${fmtDuration(st.overallDays * DAY)}` : 'all runs, time-weighted', rateClass(st.overall)));
-  box.append(grid);
+  const all = st.runs.flatMap((r) => r.readings);
+  const first = st.runs.length ? st.runs[st.runs.length - 1].readings[0] : null;
+  const latest = st.latest;
+  const sinceFirst = st.cur && st.cur.readings.length > 1 ? latest.offset - first.offset : null;
 
-  const worst = [st.runAvg, st.overall].filter((x) => x != null).map(Math.abs);
-  if (worst.length && Math.max(...worst) > amber) {
-    box.append(el('p', { class: 'service-note' }, `Averaging more than ±${amber} s/day — a service may be due.`));
+  box.append(el('div', { class: 'stats' },
+    stat('Now', latest ? fmtSignedSecs(latest.offset) : '—', latest ? fmtOffset(latest.offset) : 'no marks yet', latest ? (latest.offset >= 0 ? '' : '') : ''),
+    stat('Since last mark', fmtRate(st.lastRate), st.lastElapsed ? `${signed(latest.gain)} s in ${fmtDuration(st.lastElapsed)}` : 'needs 2 marks'),
+    stat('Average per day', fmtRate(st.overall), st.overallDays > 0 ? `over ${fmtDuration(st.overallDays * DAY)}` : 'needs 2 marks', rateClass(st.overall)),
+    stat('Total drift', sinceFirst != null ? `${fmtSignedSecs(sinceFirst)}` : '—', sinceFirst != null ? `${sinceFirst >= 0 ? 'gained' : 'lost'} since first mark (${fmtSignedSecs(first.offset)})` : 'needs 2 marks')));
+
+  if (st.overall != null && Math.abs(st.overall) > d.thresholds.amber) {
+    box.append(el('p', { class: 'service-note' }, `Averaging more than \u00b1${d.thresholds.amber} s/day \u2014 a service may be due.`));
   }
-  box.append(el('p', { class: 'legend small' },
-    el('span', { class: 'chip good' }, `≤ ±${green}`), el('span', { class: 'chip mid' }, `≤ ±${amber}`), el('span', { class: 'chip badr' }, `> ±${amber} s/day`)));
 
-  // History
-  box.append(el('h3', { class: 'sub-title' }, 'History'));
-  if (!st.runs.length) { box.append(el('p', { class: 'muted small' }, 'No readings yet.')); return; }
-  [...st.runs].reverse().forEach((run, idx) => {
-    const n = st.runs.length - idx;
-    const head = el('div', { class: 'run-head' },
-      el('span', {}, `Run ${n}${idx === 0 ? ' (current)' : ''}`),
-      el('span', { class: 'run-avg ' + rateClass(run.avg) }, run.avg != null ? `avg ${fmtRate(run.avg)}` : ''));
-    const list = el('div', { class: 'hist' });
-    [...run.readings].reverse().forEach((r) => {
+  // Log
+  box.append(el('h3', { class: 'sub-title' }, `Log \u2014 ${w.name}`));
+  if (!all.length) { box.append(el('p', { class: 'muted small' }, 'No marks yet. Compare your watch with the big seconds above, pick + or \u2212 and the seconds, then tap Mark.')); return; }
+  const list = el('div', { class: 'hist' });
+  st.runs.slice().reverse().forEach((run) => {
+    run.readings.slice().reverse().forEach((r) => {
       const rateTxt = r.rate != null
-        ? `${fmtRate(r.rate)} · ${signed(r.gain)} s in ${fmtDuration(r.elapsedMs)}${r.elapsedMs < 6 * 3600000 ? ' (short gap, rough)' : ''}`
-        : 'start of run';
+        ? `${fmtRate(r.rate)} \u00b7 ${signed(r.gain)} s in ${fmtDuration(r.elapsedMs)}`
+        : 'first mark';
       list.append(el('div', { class: 'hist-row' },
         el('div', { class: 'hist-main' },
-          el('div', { class: 'hist-when' }, fmtDateTime(r.t), r.synced ? null : el('span', { class: 'unsynced', title: 'Logged without network sync' }, ' ⚠︎')),
-          el('div', { class: 'hist-off' }, fmtOffset(r.offset)),
+          el('div', { class: 'hist-when' }, fmtDateTime(r.t), r.synced ? null : el('span', { class: 'unsynced', title: 'Marked without network sync' }, ' \u26a0\ufe0e')),
+          el('div', { class: 'hist-off' }, `${fmtSignedSecs(r.offset)} `, el('span', { class: 'muted small' }, fmtOffset(r.offset))),
           el('div', { class: 'hist-rate muted small' }, rateTxt)),
-        el('button', { type: 'button', class: 'icon-btn sm danger', 'aria-label': 'Delete reading', onclick: () => deleteReading(w, run.id, r.id) }, '×')));
+        el('button', { type: 'button', class: 'icon-btn sm danger', 'aria-label': 'Delete mark', onclick: () => deleteReading(w, run.id, r.id) }, '\u00d7')));
     });
-    box.append(el('div', { class: 'run' }, head, list));
   });
+  box.append(list);
 }
 
 export function initTracker() { render(); }

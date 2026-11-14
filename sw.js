@@ -1,6 +1,6 @@
 // Service worker: keeps the app shell available offline.
 // Bump VERSION whenever you change the app files.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'atomic-clock-' + VERSION;
 const SHELL = [
   './', './index.html', './styles.css', './manifest.webmanifest',
