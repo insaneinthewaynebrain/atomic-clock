@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Atomic Clock">
+  <meta name="description" content="Network-synced clock for setting mechanical watches, with watch accuracy tracker, world clock, weather and currency.">
+  <title>Atomic Clock</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <main id="app">
+    <!-- CLOCK -->
+    <section class="tab active" id="tab-clock" data-tab="clock">
+      <header class="topbar">
+        <h1>Atomic Clock</h1>
+        <button class="icon-btn settings-btn" type="button" aria-label="Settings"></button>
+      </header>
+
+      <button id="sync-status" class="sync-status" type="button" aria-live="polite">
+        <span class="dot"></span><span class="sync-text">Syncing with network time…</span>
+      </button>
+      <div id="sync-detail" class="sync-detail"></div>
+
+      <div class="clock" aria-label="Current time">
+        <div class="clk-hm" id="clk-hm">--:--</div>
+        <div class="clk-big"><span id="clk-s">--</span><span class="clk-ms" id="clk-ms">.---</span></div>
+        <div class="clk-date" id="clk-date"></div>
+        <div class="clk-tz" id="clk-tz"></div>
+        <div class="clk-wake" id="clk-wake"></div>
+      </div>
+
+      <div class="card" id="tracker"></div>
+    </section>
+
+    <!-- WORLD -->
+    <section class="tab" id="tab-world" data-tab="world">
+      <header class="topbar">
+        <h1>World</h1>
+        <button class="icon-btn settings-btn" type="button" aria-label="Settings"></button>
+      </header>
+      <div id="world-local" class="world-local"></div>
+      <div class="list" id="world-fixed"></div>
+      <h2 class="section-title">My places <span class="muted small">tap a slot to change it</span></h2>
+      <div class="list" id="world-slots"></div>
+    </section>
+
+    <!-- WEATHER -->
+    <section class="tab" id="tab-weather" data-tab="weather">
+      <header class="topbar">
+        <h1>Weather</h1>
+        <button class="icon-btn settings-btn" type="button" aria-label="Settings"></button>
+      </header>
+      <div id="weather"></div>
+    </section>
+
+    <!-- CURRENCY -->
+    <section class="tab" id="tab-currency" data-tab="currency">
+      <header class="topbar">
+        <h1>Currency</h1>
+        <button class="icon-btn settings-btn" type="button" aria-label="Settings"></button>
+      </header>
+      <div id="currency"></div>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Sections">
+    <button type="button" class="tabbtn active" data-tab="clock">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
+      <span>Clock</span>
+    </button>
+    <button type="button" class="tabbtn" data-tab="world">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18"/></svg>
+      <span>World</span>
+    </button>
+    <button type="button" class="tabbtn" data-tab="weather">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 10.5 3.75 3.75 0 0 0 7 18z"/></svg>
+      <span>Weather</span>
+    </button>
+    <button type="button" class="tabbtn" data-tab="currency">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>
+      <span>Currency</span>
+    </button>
+  </nav>
+
+  <dialog id="modal"></dialog>
+  <div id="toast" class="toast" role="status"></div>
+</body>
+</html>
