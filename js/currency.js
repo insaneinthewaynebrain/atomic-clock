@@ -1,6 +1,6 @@
 // Currency tab: converter for every currency open.er-api.com publishes, cached for offline use.
 import * as store from './store.js';
-import { el, fetchJSON, openModal, toast, fmtAgo } from './ui.js';
+import { el, fetchJSON, openModal, toast } from './ui.js';
 
 const RATES_URL = 'https://open.er-api.com/v6/latest/GBP';
 const STALE_MS = 6 * 60 * 60 * 1000;
@@ -120,21 +120,35 @@ function side(sideName) {
     input);
 }
 
+// The non-GBP currency on screen (the one to compare with the pound).
+function otherCode() {
+  const c = cur();
+  if (c.right !== 'GBP') return c.right;
+  if (c.left !== 'GBP') return c.left;
+  return null;
+}
+
+function renderStrip() {
+  const strip = document.getElementById('cur-strip');
+  if (!strip) return;
+  const code = otherCode();
+  if (!rates() || !code) { strip.textContent = loading ? 'Loading rates…' : ''; return; }
+  strip.innerHTML = '';
+  strip.append(
+    el('span', {}, el('b', {}, '£1'), ` = ${fmtRate(convert(1, 'GBP', code))} ${code}`),
+    el('span', { class: 'strip-sep' }, '·'),
+    el('span', {}, el('b', {}, `1 ${code}`), ` = £${fmtRate(convert(1, code, 'GBP'))}`));
+}
+
 function renderMeta() {
+  renderStrip();
   const meta = document.getElementById('cur-meta');
   if (!meta) return;
   meta.innerHTML = '';
-  const c = cur();
-  const rc = c.ratesCache;
+  const rc = cur().ratesCache;
   if (rc) {
-    const a = convert(1, c.left, c.right), b = convert(1, c.right, c.left);
-    meta.append(
-      el('div', { class: 'cur-rate' }, `1 ${c.left} = ${fmtRate(a)} ${c.right}`),
-      el('div', { class: 'cur-rate muted' }, `1 ${c.right} = ${fmtRate(b)} ${c.left}`),
-      el('div', { class: 'muted small' },
-        `Rates published ${new Date(rc.updatedUnix * 1000).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` +
-        ` · downloaded ${fmtAgo(rc.fetchedAt)}`),
-      el('div', { class: 'muted small' }, `${Object.keys(rc.rates).length} currencies · Rates by ExchangeRate-API (open.er-api.com), updated daily`));
+    meta.append(el('div', { class: 'muted small' },
+      `Rates updated ${new Date(rc.updatedUnix * 1000).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · open.er-api.com`));
   }
   if (loading) meta.append(el('div', { class: 'muted small' }, 'Updating rates…'));
   if (error) meta.append(el('div', { class: 'notice ' + (rc ? 'warn' : 'bad') }, error));
@@ -144,15 +158,24 @@ export function render() {
   const box = root();
   box.innerHTML = '';
   inputs = {};
+  box.append(el('div', { class: 'cur-strip', id: 'cur-strip' }));
   box.append(el('div', { class: 'card cur-card' },
     side('left'),
     el('div', { class: 'swap-row' }, el('button', { type: 'button', class: 'icon-btn swap', 'aria-label': 'Swap currencies', onclick: swap }, '⇅')),
     side('right')));
-  box.append(el('div', { class: 'card', id: 'cur-meta' }));
+  box.append(el('div', { class: 'cur-meta', id: 'cur-meta' }));
   box.append(el('button', { type: 'button', class: 'btn wide', onclick: () => { toast('Updating rates…', 1000); loadRates(true); } }, 'Refresh rates'));
   recalc();
   renderMeta();
 }
 
 export function initCurrency() { render(); }
-export function showCurrency() { render(); loadRates(false); }
+// Always start at £1 so the rate is easy to read.
+export function showCurrency() {
+  const c = cur();
+  c.amount = '1';
+  c.side = c.left === 'GBP' ? 'left' : c.right === 'GBP' ? 'right' : 'left';
+  store.save();
+  render();
+  loadRates(false);
+}

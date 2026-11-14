@@ -135,6 +135,7 @@ async function refresh(force = false) {
     else {
       const pos = await getPosition();
       place = { name: 'Your location', gps: true, ...pos };
+      Object.assign(place, await nearestTown(pos.lat, pos.lon, w.cache?.place));
       w.mode = 'gps';
     }
     const { raw, models } = await fetchForecast(place.lat, place.lon);
@@ -150,10 +151,42 @@ async function refresh(force = false) {
   }
 }
 
+/* ---------- Coordinates -> nearest town (free, keyless) ---------- */
+let regionNames = null;
+try { regionNames = new Intl.DisplayNames(['en-GB'], { type: 'region' }); } catch (e) { regionNames = null; }
+const countryName = (code, fallback) => {
+  try { return (code && regionNames && regionNames.of(code.toUpperCase())) || fallback || ''; } catch (e) { return fallback || ''; }
+};
+
+function kmBetween(a, b) {
+  const r = Math.PI / 180;
+  const x = (b.lon - a.lon) * r * Math.cos(((a.lat + b.lat) / 2) * r), y = (b.lat - a.lat) * r;
+  return Math.sqrt(x * x + y * y) * 6371;
+}
+
+async function nearestTown(lat, lon, previous) {
+  // Reuse the last name if we've barely moved.
+  if (previous && previous.gps && previous.town && kmBetween(previous, { lat, lon }) < 1) {
+    return { town: previous.town, region: previous.region };
+  }
+  try {
+    const j = await fetchJSON(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`, 8000);
+    const town = j.city || j.locality;
+    if (town) return { town, region: [j.principalSubdivision, countryName(j.countryCode, j.countryName)].filter(Boolean).join(', ') };
+  } catch (e) { /* try the next service */ }
+  try {
+    const j = await fetchJSON(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&accept-language=en&lat=${lat}&lon=${lon}`, 8000);
+    const a = j.address || {};
+    const town = a.town || a.village || a.city || a.suburb || a.hamlet || a.municipality || j.name;
+    if (town) return { town, region: [a.county || a.state, countryName(a.country_code, a.country)].filter((x, i, arr) => x && arr.indexOf(x) === i).join(', ') };
+  } catch (e) { /* fall through */ }
+  return {};
+}
+
 function sameLocation(w) {
   const p = w.cache?.place;
   if (!p) return false;
-  if (w.mode === 'gps') return !!p.gps;
+  if (w.mode === 'gps') return !!p.gps && !!p.town;
   if (w.mode === 'place' && w.place) return !p.gps && p.lat === w.place.lat && p.lon === w.place.lon;
   return false;
 }
@@ -197,8 +230,17 @@ export function render() {
   const w = store.get().weather;
   const cache = w.cache;
 
-  const placeTitle = cache ? (cache.place.gps ? '📍 Your location' : cache.place.name) : (w.place ? w.place.name : '');
-  const placeSub = cache ? (cache.place.gps ? `${cache.place.lat.toFixed(2)}, ${cache.place.lon.toFixed(2)}` : placeLabel(cache.place)) : '';
+  let placeTitle = w.place ? w.place.name : '', placeSub = '';
+  if (cache) {
+    const p = cache.place;
+    if (p.gps) {
+      placeTitle = '📍 ' + (p.town || 'Your location');
+      placeSub = p.town ? `${p.region ? p.region + ' · ' : ''}your current location` : `${p.lat.toFixed(2)}, ${p.lon.toFixed(2)}`;
+    } else {
+      placeTitle = p.name;
+      placeSub = placeLabel(p);
+    }
+  }
 
   box.append(el('div', { class: 'wx-head' },
     el('div', {}, el('div', { class: 'wx-place' }, placeTitle || 'Weather'), placeSub ? el('div', { class: 'muted small' }, placeSub) : null),

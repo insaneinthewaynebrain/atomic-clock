@@ -9,7 +9,7 @@ function defaults() {
     selectedWatchId: null,
     worldSlots: [null, null, null, null, null],     // [{name, admin1, country, timezone, lat, lon}]
     weather: { mode: null, place: null, cache: null },
-    currency: { left: 'GBP', right: 'EUR', amount: '100', side: 'left', ratesCache: null },
+    currency: { left: 'GBP', right: 'EUR', amount: '1', side: 'left', ratesCache: null },
   };
 }
 
