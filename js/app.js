@@ -8,6 +8,7 @@ import { initWeather, showWeather } from './weather.js';
 import { initCurrency, showCurrency } from './currency.js';
 import { el, openModal, confirmModal, toast } from './ui.js';
 
+export const APP_VERSION = '3';
 const GEAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
 
 const TABS = {
@@ -102,6 +103,7 @@ function openSettings() {
       el('p', { class: 'muted small' }, syncInfo + ' Re-syncs every 5 minutes and when you reopen the app.'),
       el('button', { type: 'button', class: 'btn wide', onclick: async () => { toast('Syncing…', 1000); const ok = await sync(); toast(ok ? `Synced, ±${clock.accuracy} ms` : 'Sync failed'); } }, 'Sync now'),
       el('h3', { class: 'sub-title' }, 'Data sources (free, no keys)'),
+      el('p', { class: 'muted small' }, `App version ${APP_VERSION}`),
       el('p', { class: 'muted small' }, 'Time: time.now (backup: timeapi.io) · Places & weather: Open-Meteo.com (Met Office UKMO model + Open-Meteo default) · Currency: ExchangeRate-API open.er-api.com'),
     ],
     actions: [
@@ -136,7 +138,15 @@ function init() {
   switchTab(TABS[start] ? start : 'clock');
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW registration failed', e));
+    // When a new version takes over, reload once so the new files are used.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !reloaded) { reloaded = true; location.reload(); }
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch((e) => console.warn('SW registration failed', e));
   }
 }
 

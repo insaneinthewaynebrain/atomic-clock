@@ -1,6 +1,7 @@
-// Service worker: keeps the app shell available offline.
-// Bump VERSION whenever you change the app files.
-const VERSION = 'v2';
+// Service worker: keeps the app working offline.
+// Online: always fetch the latest files from the network (so updates show straight away).
+// Offline: use the copies saved here.
+const VERSION = 'v3';
 const CACHE = 'atomic-clock-' + VERSION;
 const SHELL = [
   './', './index.html', './styles.css', './manifest.webmanifest',
@@ -10,7 +11,10 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache so we never save stale files.
+  event.waitUntil(caches.open(CACHE)
+    .then((c) => Promise.all(SHELL.map((u) => fetch(u, { cache: 'reload' }).then((r) => { if (r.ok) return c.put(u, r); }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -20,22 +24,21 @@ self.addEventListener('activate', (event) => {
       .then(() => self.clients.claim()));
 });
 
-// Same-origin files: serve from cache straight away, refresh the cache in the background.
-// Other sites (time, weather, rates APIs) always go to the network; the app caches their data itself.
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return;
-  const key = req.mode === 'navigate' ? './index.html' : req;
-  event.respondWith(caches.open(CACHE).then(async (cache) => {
-    const cached = await cache.match(key, { ignoreSearch: true });
-    const network = fetch(req).then((res) => {
-      if (res && res.ok) cache.put(key, res.clone());
+  if (url.origin !== self.location.origin) return;   // APIs: straight to the network
+  const key = req.mode === 'navigate' ? './index.html' : url.pathname;
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    try {
+      const res = await fetch(req, { cache: 'no-cache' });   // revalidate with the server every time
+      if (res.ok) cache.put(key, res.clone());
       return res;
-    }).catch(() => null);
-    if (cached) { event.waitUntil(network); return cached; }
-    const res = await network;
-    return res || new Response('Offline', { status: 503, statusText: 'Offline' });
-  }));
+    } catch (e) {
+      const cached = await cache.match(key, { ignoreSearch: true });
+      return cached || new Response('Offline', { status: 503, statusText: 'Offline' });
+    }
+  })());
 });
