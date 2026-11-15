@@ -520,6 +520,7 @@ function render() {
   const box = $('tool-alarm-body');
   if (!box) return;
   stopPreview();
+  const keepY = window.scrollY;          // redrawing must not move the page (e.g. buttons jumping away after Lap)
   box.innerHTML = '';
   const v = view();
   box.append(el('div', { class: 'alarm-nav', role: 'tablist' }, VIEWS.map(([k, icon, label]) =>
@@ -531,6 +532,7 @@ function render() {
   liveUpdate = null;
   if (v === 'alarms') { timers.leave(); renderAlarms(body); }
   else liveUpdate = timers.renderView(v, body, render);
+  if (window.scrollY !== keepY) window.scrollTo(0, keepY);
 }
 
 function show() {

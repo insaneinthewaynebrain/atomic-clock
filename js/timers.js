@@ -196,9 +196,14 @@ function viewStopwatch(box, rerender) {
       el('div', {}, el('span', { class: 'muted small' }, 'Slowest'), el('b', { class: 'bad-t' }, ms3(worst)))) : '',
     el('div', { class: 'lap-head muted small' }, el('span', {}, 'Lap'), el('span', {}, 'Lap time'), el('span', {}, 'Total')),
     liveRow, rows) : '',   // '' not null: box.append would print "null"
-  el('p', { class: 'muted small center' }, 'Buttons react the instant you touch them, timed to the millisecond. ',
+  el('p', { class: 'muted small center' },
     lapTimes.length ? 'Fastest lap green, slowest red; the small figure is the change from the lap before. ' : 'Tap Start, then Lap each time round — or just Start and Stop. ',
-    'The screen stays on while it runs, and it keeps going if you leave this screen.'));
+    'The screen stays on while it runs, and it keeps going if you leave this screen.'),
+  el('div', { class: 'sw-disclaimer' },
+    el('b', {}, 'About accuracy'),
+    el('p', {}, 'Times are shown to the thousandth of a second (1 ms), but a phone screen only checks for touches about every 8 ms (newer iPhones and iPads) to 16 ms (most other phones), so any single press can be up to that much late. '
+      + 'Your own reaction time (typically 150–250 ms) is a far bigger factor. For the most consistent results, have the same person press the same way each time. '
+      + 'This stopwatch is for personal use and is not a certified timing system for official results.')));
 
   // Redraw every screen frame (not every 0.1 s) so the thousandths actually move.
   const draw = () => {
