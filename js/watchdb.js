@@ -2,17 +2,30 @@
 // movements (used to fill in and cross-check the add-a-watch form). Data is a starting point, not gospel:
 // the app always asks the person to check it.
 
-export const BRANDS = ['A. Lange & Söhne', 'Alpina', 'Anordain', 'Audemars Piguet', 'Ball', 'Baltic', 'Baume & Mercier',
-  'Bell & Ross', 'Blancpain', 'Boldr', 'Breguet', 'Breitling', 'Bremont', 'Bulgari', 'Bulova', 'Carl F. Bucherer', 'Cartier',
-  'Casio', 'Certina', 'Chopard', 'Christopher Ward', 'Citizen', 'Corum', 'Damasko', 'Dan Henry', 'Davosa', 'Doxa', 'Edox',
-  'Elliot Brown', 'Eterna', 'F.P. Journe', 'Farer', 'Fears', 'Formex', 'Fortis', 'Fossil', 'Franck Muller', 'Frederique Constant',
-  'G-Shock', 'Garmin', 'Girard-Perregaux', 'Glashütte Original', 'Glycine', 'Grand Seiko', 'Gruen', 'H. Moser & Cie', 'Hamilton',
-  'Hanhart', 'Heuer', 'Hublot', 'IWC', 'Jaeger-LeCoultre', 'Junghans', 'Kurono Tokyo', 'Laco', 'Lemania', 'Longines', 'Lorier',
-  'Louis Erard', 'Luminox', 'Marathon', 'Maurice Lacroix', 'MB&F', 'Mido', 'Ming', 'Montblanc', 'Movado', 'Mühle-Glashütte',
-  'Nivada Grenchen', 'Nodus', 'Nomos', 'Norqain', 'Omega', 'Orient', 'Orient Star', 'Oris', 'Panerai', 'Parmigiani Fleurier',
-  'Patek Philippe', 'Piaget', 'Rado', 'Raymond Weil', 'Richard Mille', 'Rolex', 'Roger Dubuis', 'Seagull', 'Seiko', 'Sinn',
-  'Smiths', 'Squale', 'Steinhart', 'Swatch', 'TAG Heuer', 'Timex', 'Tissot', 'Tudor', 'Ulysse Nardin', 'Unimatic', 'Vacheron Constantin',
-  'Stowa', 'Vaer', 'Vostok', 'Yema', 'Zenith', 'Zodiac'].sort((a, b) => a.localeCompare(b));
+export const BRANDS = [
+  '88 Rue du Rhone', 'A. Lange & Söhne', 'Accurist', 'adidas', 'Allemano', 'Alpina', 'Alsta', 'Amazfit',
+  'Anordain', 'Armani Exchange', 'Audemars Piguet', 'Avi-8', 'Ball', 'Baltic', 'Barbour', 'Bauhaus',
+  'Baume & Mercier', 'Bell & Ross', 'Ben Sherman', 'Bering', 'Blancpain', 'Boccia Titanium', 'Boldr', 'BOSS',
+  'Breguet', 'Breitling', 'Bremont', 'Bulgari', 'Bulova', 'Calypso', 'Candino', 'Carl F. Bucherer',
+  'Cartier', 'Casio', 'Certina', 'Chopard', 'Christopher Ward', 'Citizen', 'Coach', 'Corum',
+  'Damasko', 'Dan Henry', 'Daniel Wellington', 'Davosa', 'Diesel', 'Doxa', 'Duckworth Prestex', 'Dufa',
+  'Edifice', 'Edox', 'Elliot Brown', 'Emporio Armani', 'Eterna', 'F.P. Journe', 'Farer', 'Favre Leuba',
+  'Fears', 'Festina', 'Formex', 'Fortis', 'Fossil', 'Franck Muller', 'Frederique Constant', 'G-Shock',
+  'Gant', 'Garmin', 'Gc', 'Girard-Perregaux', 'Glashütte Original', 'Glycine', 'Grand Seiko', 'Gruen',
+  'Guess', 'H. Moser & Cie', 'Hamilton', 'Hanhart', 'Herbelin', 'Heuer', 'Hublot', 'HUGO',
+  'Ice-Watch', 'Ikepod', 'Ingersoll', 'IWC', 'Jacques du Manoir', 'Jacques Lemans', 'Jaeger-LeCoultre', 'Junghans',
+  'Kronaby', 'Kurono Tokyo', 'Laco', 'Lacoste', 'Lemania', 'Longines', 'Lorier', 'Lorus',
+  'Lotus', 'Louis Erard', 'Luminox', 'Marathon', 'Maurice Lacroix', 'MB&F', 'MeisterSinger', 'Michael Kors',
+  'Mido', 'Ming', 'Mondaine', 'Montblanc', 'Movado', 'Mühle-Glashütte', 'Nautica', 'Nivada Grenchen',
+  'Nixon', 'Nodus', 'Nomos', 'Nordgreen', 'Norqain', 'Obaku', 'Olivia Burton', 'Omega',
+  'Orient', 'Orient Star', 'Oris', 'Panerai', 'Parmigiani Fleurier', 'Patek Philippe', 'Paul Hewitt', 'Piaget',
+  'Pierre Lannier', 'Polar', 'Rado', 'Raymond Weil', 'Richard Mille', 'Roamer', 'Roger Dubuis', 'Rolex',
+  'Rotary', 'Seagull', 'Seiko', 'Sekonda', 'Sinn', 'Skagen', 'Smiths', 'Spinnaker',
+  'Squale', 'Steinhart', 'Sternglas', 'Stowa', 'Suunto', 'Swatch', 'Swiss Military Hanowa', 'TAG Heuer',
+  'Ted Baker', 'Timex', 'Tissot', 'Tommy Hilfiger', 'Tudor', 'Ulysse Nardin', 'Unimatic', 'Vacheron Constantin',
+  'Vaer', 'Victorinox', 'Vostok', 'Vostok Europe', 'Withings', 'Yema', 'Zenith', 'Zeppelin',
+  'Zodiac',
+].sort((a, b) => a.localeCompare(b));
 
 /** Words that point to a brand (and sometimes a model family) when read on a dial. */
 const DIAL_HINTS = [
@@ -210,7 +223,10 @@ export function parseDial(raw) {
   const found = [];
 
   // Brand: exact phrase first (longest first), then a one-letter-off match for single longer words (e.g. SEIK0).
-  const hints = [...DIAL_HINTS].sort((a, b) => b[0].length - a[0].length);
+  // Every brand in the list can be read off a dial too (names of 4+ letters, so short ones like Gc don't misfire).
+  const fromList = BRANDS.filter((b) => b.replace(/[^A-Za-z]/g, '').length >= 4 && !DIAL_HINTS.some((h) => h[1] === b))
+    .map((b) => [b.toUpperCase().replace(/Ü/g, 'U').replace(/Ö/g, 'O').replace(/É/g, 'E'), b]);
+  const hints = [...DIAL_HINTS, ...fromList].sort((a, b) => b[0].length - a[0].length);
   let hit = hints.find(([w]) => new RegExp(`(^|[^A-Z])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Z]|$)`).test(text));
   if (!hit) {
     for (const h of hints) {
