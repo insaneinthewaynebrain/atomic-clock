@@ -1048,3 +1048,14 @@ body.tg-stage-open { overflow: hidden; }
 .remind-text span { font-size: 13px; color: var(--muted); }
 .field > .stepper-label { color: var(--text); }
 .packet .field:has(.remind-choice) { margin-top: 16px; }
+
+/* Medication: severe warning and terms */
+dialog.severe .modal-box { border: 2px solid var(--red); box-shadow: 0 0 0 4px rgba(248,113,113,.15); }
+dialog.severe .modal-title { color: var(--red); }
+.severe-list { font-size: 16px; font-weight: 700; color: #fecaca; padding-left: 20px; }
+.severe-list li { margin: 8px 0; }
+.accept-box { align-items: flex-start; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); margin-top: 10px; font-size: 14px; }
+.accept-box .check { margin-top: 2px; }
+.terms-list { padding-left: 20px; font-size: 14px; margin: 8px 0; }
+.terms-list li { margin: 8px 0; }
+.link-btn.inline { padding: 0; font-size: inherit; color: inherit; }

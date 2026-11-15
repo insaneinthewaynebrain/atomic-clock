@@ -13,7 +13,8 @@ let msgs = [], nextMsgAt = 0, speaking = false;
 const MSG_EVERY = 18000;   // a new wake-up message about every 18 seconds
 
 /**
- * opts: { icon, title, label, sound, sunlit, words: 'speak' | 'show' | 'off', buttons: [{ label, kind, fn }], onTimeout }
+ * opts: { icon, title, label, sound, sunlit, words: 'speak' | 'show' | 'off', say, buttons: [{ label, kind, fn }], onTimeout }
+ * `say`: a sentence spoken over and over (between chimes) until a button is pressed.
  * The first button is the main one; every button stops the sound.
  */
 export function ringAlert(opts) {
@@ -61,10 +62,17 @@ export const isRinging = () => !!cur;
 function beat() {
   const t = $('ar-time');
   if (t) { const x = new Date(now()); t.textContent = `${pad(x.getHours())}:${pad(x.getMinutes())}`; }
-  const tone = normTone(cur.sound);
+  const tone = cur.sound === 'chime' ? 'chime' : normTone(cur.sound);
   const [v0, v1, secs] = RAMP[tone];
   const vol = Math.min(v1, v0 + ((Date.now() - started) / 1000 / secs) * (v1 - v0));
   if (msgs.length && Date.now() >= nextMsgAt) { nextMsgAt = Date.now() + MSG_EVERY; nextMessage(); }
+  if (cur.say && !speaking && Date.now() >= nextMsgAt) {
+    nextMsgAt = Date.now() + 8000;           // once per chime cycle
+    speaking = true;
+    player?.setVolume(0.15);
+    const mine = cur;
+    speak({ text: cur.say }, 'medium').then(() => { if (cur === mine) speaking = false; });
+  }
   const v = speaking ? vol * 0.18 : vol;           // music dips while the voice talks
   if (!player) { const ctx = getAudio(); if (ctx) player = playTone(ctx, tone, v); }
   else player.setVolume(v);

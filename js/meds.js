@@ -7,7 +7,8 @@
 import * as store from './store.js';
 import { el, pad, toast, confirmModal, openModal } from './ui.js';
 import { unlockAudio } from './countdown.js';
-import { ringAlert, toneField } from './ring.js';
+import { ringAlert } from './ring.js';
+import { primeSpeech } from './wakewords.js';
 
 const MAX_MEDS = 20;
 const MIN = 60000, H = 60 * MIN, DAY = 24 * H;
@@ -145,21 +146,26 @@ export function checkMeds(meds, changed) {
   for (const m of meds) {
     if (!m.endAt || m.rang || t < m.endAt) continue;
     m.rang = true; store.save(); changed();
+    const name = m.name || 'medication';
     ringAlert({
-      icon: '💊', title: m.name || 'Medication',
-      label: `Time for your next dose — if you need it. Remember to check the packet, e.g. whether to take it with food.`,
-      sound: m.sound,
-      buttons: [{ label: 'Not now' }, { label: 'I’ve taken it', kind: 'primary', fn: () => setTimeout(() => takeNow(m, changed), 200) }],
+      icon: '💊', title: `Your ${name} timer has ended`,
+      label: 'Check the packet before taking it — for example, whether to take it with food.',
+      sound: 'chime', say: `Your ${name} timer has ended.`,
+      buttons: [{ label: 'Stop' }, { label: 'I’ve taken it — start again', kind: 'primary', fn: () => setTimeout(() => takeNow(m, changed), 200) }],
     });
   }
 }
 
 /* ---------- Taking a dose ---------- */
+/** Reasons to stop and think before recording a dose at `at`. */
 function problems(m, at) {
   const out = [];
   const prev = m.log.filter((x) => x.t <= at).pop();
   if (prev && at < prev.t + m.minGap * H) out.push(`It’s only been ${span(at - prev.t)} since your last dose. The packet says to wait at least ${hrs(m.minGap)}.`);
   if (in24(m, at) + 1 > m.perDay) out.push(`This would be dose ${in24(m, at) + 1} in 24 hours. The packet says no more than ${m.perDay}.`);
+  const p = periodAt(at);
+  if (at >= p.b) out.push(`It’s after the bedtime you set (${hhmm(p.b)}). Should you be taking this medication now?`);
+  else if (p.b - at < m.minGap * H) out.push(`There ${p.b - at < 2 * H ? 'is' : 'are'} only ${span(p.b - at)} before you go to bed (${hhmm(p.b)}). Should you be taking this medication now?`);
   const ex = expiry(m);
   if (ex?.bad) out.push(ex.text);
   return out;
@@ -173,22 +179,32 @@ function record(m, at, after) {
   after?.();
 }
 
-async function takeNow(m, after, at = Date.now()) {
-  unlockAudio();
-  const issues = problems(m, at);
-  if (issues.length) {
-    const ok = await new Promise((resolve) => {
-      let yes = false;
-      openModal({
-        title: '⚠️ Please check',
-        content: [el('ul', { class: 'warn-list' }, issues.map((x) => el('li', {}, x))),
-          el('p', { class: 'small muted' }, 'If you’re not sure, don’t take it — ask a pharmacist, or call NHS 111 (or your local health line).')],
-        actions: [{ label: 'Don’t record' }, { label: 'Record anyway', kind: 'danger', onClick: () => { yes = true; } }],
-        onClose: () => resolve(yes),
-      });
+/** The serious warning: the user must tick to accept responsibility before "Take anyway" works. */
+function severeWarning(issues) {
+  return new Promise((resolve) => {
+    let yes = false, btn = null;
+    const tick = el('input', { type: 'checkbox', class: 'check', onchange: () => { if (btn) btn.disabled = !tick.checked; } });
+    const dlg = openModal({
+      title: '⚠️ Warning',
+      className: 'severe',
+      content: [
+        el('ul', { class: 'warn-list severe-list' }, issues.map((x) => el('li', {}, x))),
+        el('p', { class: 'small' }, 'If you’re not sure, don’t take it. Ask a pharmacist, or call NHS 111 (or your local health line). In an emergency call 999.'),
+        el('label', { class: 'field check-field accept-box' }, tick,
+          el('span', {}, 'I have read the packet. I accept full responsibility for taking this dose, and that this app gives no medical advice.')),
+      ],
+      actions: [{ label: 'Don’t take it', kind: 'primary' }, { label: 'Take anyway', kind: 'danger', onClick: () => { if (!tick.checked) return false; yes = true; } }],
+      onClose: () => resolve(yes),
     });
-    if (!ok) return;
-  }
+    btn = dlg.dlg.querySelector('.modal-actions .btn:last-child');
+    btn.disabled = true;
+  });
+}
+
+async function takeNow(m, after, at = Date.now()) {
+  unlockAudio(); primeSpeech();
+  const issues = problems(m, at);
+  if (issues.length && !(await severeWarning(issues))) return;
   record(m, at, after);
 }
 
@@ -275,7 +291,6 @@ function settings(m, rerender) {
       ].map(([v, l, h]) => el('button', { type: 'button', class: 'remind-opt' + (m.remind === v ? ' on' : ''), 'aria-pressed': String(m.remind === v),
         onclick: () => { m.remind = v; schedule(m); store.save(); openSettings.add(m.id); rerender(); } },
         el('span', { class: 'remind-tick' }, m.remind === v ? '✓' : ''), el('span', { class: 'remind-text' }, el('b', {}, l), el('span', {}, h)))))),
-    toneField(m.sound, (v) => { m.sound = v; store.save(); }, 'Reminder sound'),
     el('div', { class: 'pk-end' },
       el('button', { type: 'button', class: 'btn sm', disabled: !m.log.length, onclick: async () => {
         if (!(await confirmModal('Clear the dose history?', 'Starts this medicine afresh. Its settings are kept.', 'Clear', true))) return;
@@ -310,7 +325,32 @@ function dayCard(rerender) {
     el('p', { class: 'muted small' }, `Doses are spread across your ${span(awakeMs())} awake.`));
 }
 
+/* ---------- Terms: accepted once before the medication timers can be used ---------- */
+export const MED_TERMS = [
+  'These medication timers are reminders only. They are not a medical device and do not give medical advice.',
+  'The app does not know which medicines are right for you, the correct dose, how medicines interact, or whether a medicine is out of date or should be taken with food.',
+  'You are responsible for reading and following the packet or patient leaflet, and the advice of your doctor or pharmacist. The times shown are worked out only from the numbers you enter.',
+  'Reminders can be missed: the app only rings while it is open on screen, and phones can be muted, locked, flat or switched off. Never rely on it for medicine where a missed or extra dose could cause serious harm.',
+  'To the fullest extent permitted by law, the app’s makers accept no responsibility for any harm, loss or consequence arising from its use.',
+  'If you think you or someone else has taken too much of a medicine, get medical help straight away (NHS 111, or 999 in an emergency) — even if they feel well.',
+];
+
+function termsCard(rerender) {
+  const tick = el('input', { type: 'checkbox', class: 'check' });
+  const go = el('button', { type: 'button', class: 'btn primary wide big-btn', disabled: true, onclick: () => {
+    store.get().medTerms = { at: Date.now(), v: 1 }; store.save(); rerender();
+  } }, 'Continue');
+  tick.addEventListener('change', () => { go.disabled = !tick.checked; });
+  return el('div', { class: 'card terms-card' },
+    el('h2', { class: 'card-title' }, '💊 Before you use medication timers'),
+    el('p', { class: 'small' }, 'Please read and accept these terms:'),
+    el('ol', { class: 'terms-list' }, MED_TERMS.map((x) => el('li', {}, x))),
+    el('label', { class: 'field check-field accept-box' }, tick, el('span', {}, 'I have read and accept these terms.')),
+    go);
+}
+
 export function viewMeds(box, rerender, meds) {
+  if (!store.get().medTerms) { box.append(termsCard(rerender)); return null; }
   meds.forEach(tidy);
   const cards = meds.map((m, i) => {
     const s = status(m);
@@ -340,6 +380,7 @@ export function viewMeds(box, rerender, meds) {
     el('div', { class: 'notice warn med-safety' },
       el('b', {}, 'Always follow the packet or leaflet, and your doctor’s or pharmacist’s advice. '),
       'This is a reminder only — it can’t tell whether a medicine is right for you, and it only rings while the app is open.',
+      ' ', el('button', { type: 'button', class: 'link-btn inline', onclick: () => openModal({ title: 'Medication timer terms', content: el('ol', { class: 'terms-list' }, MED_TERMS.map((x) => el('li', {}, x))), actions: [{ label: 'Close', kind: 'primary' }] }) }, 'Terms'),
       el('details', {}, el('summary', {}, 'Safety tips before taking any medicine'),
         el('ul', { class: 'warn-list' },
           el('li', {}, el('b', {}, 'Check the date. '), 'Don’t take anything past its expiry (“EXP”) date.'),

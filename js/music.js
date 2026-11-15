@@ -17,7 +17,7 @@ export function normTone(s) {
 }
 
 /** How each tone builds: starting volume, full volume and seconds to get there. */
-export const RAMP = { soft: [0.25, 0.9, 60], medium: [0.35, 0.9, 30], harsh: [0.6, 1, 8] };
+export const RAMP = { soft: [0.25, 0.9, 60], medium: [0.35, 0.9, 30], harsh: [0.6, 1, 8], chime: [0.55, 0.9, 20] };
 
 const hz = (n) => 440 * Math.pow(2, (n - 69) / 12);
 
@@ -209,7 +209,26 @@ function harsh(ctx, bus) {
   };
 }
 
-const STYLES = { soft, medium, harsh };
+/* ---------- Chime: the medication reminder ----------
+ A clear two-note "ding-dong" every 8 seconds, with quiet in between for the spoken reminder. */
+function chime(ctx, bus) {
+  const space = echo(ctx, bus, 0.3, 0.25, 3500);
+  const bell = (f, t, v) => {
+    voice(ctx, space, { type: 'sine', f, t, dur: 0.01, vol: v, a: 0.004, r: 1.8 });
+    voice(ctx, space, { type: 'sine', f: f * 2.01, t, dur: 0.01, vol: v * 0.25, a: 0.003, r: 0.8 });
+    voice(ctx, space, { type: 'triangle', f: f * 3, t, dur: 0.01, vol: v * 0.08, a: 0.002, r: 0.4 });
+  };
+  return {
+    bpm: 60, div: 2,
+    step(s, t) {
+      const i = s % 16;
+      if (i === 0) bell(hz(88), t, 0.35);      // E6
+      if (i === 1) bell(hz(84), t, 0.35);      // C6
+    },
+  };
+}
+
+const STYLES = { soft, medium, harsh, chime };
 
 /**
  * Start a tone looping. Returns { setVolume(v), stop() }.
@@ -221,7 +240,7 @@ export function playTone(ctx, tone, volume = 0.6) {
   comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.005; comp.release.value = 0.2;
   const bus = ctx.createGain();
   bus.connect(comp).connect(out).connect(ctx.destination);
-  const S = (STYLES[normTone(tone)])(ctx, bus);
+  const S = (STYLES[tone] || STYLES[normTone(tone)])(ctx, bus);
   const sd = 60 / S.bpm / S.div;
   let s = 0, next = ctx.currentTime + 0.08, stopped = false;
   const pump = () => {
