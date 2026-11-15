@@ -10,7 +10,14 @@ A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouT
   more slots any time; no limit). Each slot shows the watch's face picture, brand, model/reference and time
   worn in the past 12 months, and is outlined green (worn most), amber or red (worn least). Adding a watch
   opens the camera with a circle, square or tall-rectangle guide: fill it with the watch head and only that
-  is kept as the watch's face picture. Plus wishlist and sold/traded, more photos, values and a summary. What's on your wrist, service/warranty/battery reminders and
+  is kept as the watch's face picture. Pressing the shutter runs a film-style scan that reads the dial on the
+  phone (brand, automatic/quartz, jewels, water resistance, GMT/chronograph/date when written on the dial). Then
+  "Which watch is it?" (brand dropdown with "Add a brand", reference or "I don't know", a name, year or "I don't
+  know"), a look-up that cross-checks the dial against the built-in reference list (popular models and
+  movements: calibre, beat rate, power reserve, jewels, size, functions, years made) and Wikipedia, and a link to
+  Chrono24's search in your currency's country for current prices. The form also has seller type (private
+  seller, or shop name/address/contact for a jeweller), legacy (who the watch is to be left to — not a will),
+  and each watch can make a for-sale QR code. Plus wishlist and sold/traded, more photos, values and a summary. What's on your wrist, service/warranty/battery reminders and
   a wear calendar with stats sit at the top; each watch's own page has its wrist panel (wear now / taken
   off, power-reserve countdown with "Wound", recent wears, log a past wear). This replaces the old
   Collection and Wrist tabs (old `#wrist` links open the Watch Box).
@@ -31,6 +38,10 @@ user's own phone (localStorage, with photos in IndexedDB). There's a JSON backup
 photos optional.
 
 ## Data sources (free, keyless, CORS-enabled)
+- Dial reading: Tesseract.js OCR runs on the phone (engine and English data downloaded once from jsDelivr); pictures never leave the device
+- Watch details: built-in reference list in `js/watchdb.js` (add references and calibres there), plus Wikipedia summaries
+- Prices: Chrono24 has no public API and blocks cross-site requests, so the app opens Chrono24's search instead
+- For-sale QR codes: qrcode-generator (jsDelivr), made on the phone
 - Time: `time.now` (fallback `timeapi.io`)
 - Weather and place search: Open-Meteo (Met Office `ukmo_seamless`, then `best_match`)
 - Town name: BigDataCloud (fallback OpenStreetMap Nominatim)

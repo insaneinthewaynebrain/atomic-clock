@@ -26,9 +26,10 @@ function frameRect(shape, W, H) {
 /**
  * Opens the camera. Resolves with { blob, shape } (a JPEG of just the framed area), { skip: true } if the
  * person chose to skip (only offered with allowSkip), or null if cancelled.
+ * With `scan(blob, onWord)`, the picture is analysed (scan-line animation) and the result comes back as `scan`.
  * `shape` picks the starting guide; the last one used is remembered.
  */
-export function captureFace({ shape, title = 'Face picture', allowSkip = false } = {}) {
+export function captureFace({ shape, title = 'Face picture', allowSkip = false, scan = null } = {}) {
   return new Promise((resolve) => {
     const data = store.get();
     let cur = shape || data.faceShape || 'circle';
@@ -193,18 +194,69 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false }
       dlg.classList.add('flash');
       c.toBlob((blob) => {
         if (!blob) { shutter.disabled = false; toast('Could not take the picture'); return; }
-        preview(blob);
+        if (scan) runScan(blob); else preview(blob);
       }, 'image/jpeg', 0.9);
     }
 
-    function preview(blob) {
+    // Film-style analysis: the frame freezes, a scan line sweeps the watch, words read off the dial flicker up.
+    async function runScan(blob) {
+      if (!still) video.pause();
+      const f = frameRect(cur, stage.clientWidth, stage.clientHeight);
+      const words = el('div', { class: 'scan-words' });
+      const status = el('div', { class: 'scan-status' }, 'ANALYSING DIAL');
+      const pct = el('div', { class: 'scan-pct' }, '00%');
+      const box = el('div', { class: 'scan-box ' + cur, style: `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px` },
+        el('div', { class: 'scan-grid' }), el('div', { class: 'scan-line' }),
+        el('i', { class: 'scan-c tl' }), el('i', { class: 'scan-c tr' }), el('i', { class: 'scan-c bl' }), el('i', { class: 'scan-c br' }));
+      const hud = el('div', { class: 'scan-hud', style: `top:${Math.min(stage.clientHeight - 150, f.y + f.h + 16)}px` }, el('div', { class: 'scan-row' }, status, pct), words);
+      const layer = el('div', { class: 'scan-layer' }, box, hud);
+      stage.append(layer);
+      hint.hidden = true;
+      dlg.classList.add('scanning');
+      const steps = ['ANALYSING DIAL', 'READING TEXT', 'MATCHING BRAND', 'MOVEMENT', 'JEWELS', 'WATER RESISTANCE', 'COMPLICATIONS'];
+      let n = 0, p = 0;
+      const tick = setInterval(() => {
+        p = Math.min(96, p + Math.max(1, (96 - p) * 0.06));
+        pct.textContent = String(Math.floor(p)).padStart(2, '0') + '%';
+        if (++n % 9 === 0) status.textContent = steps[Math.min(steps.length - 1, Math.floor(n / 9))];
+      }, 90);
+      const seen = new Set();
+      const onWord = (wd) => {
+        const t = String(wd).replace(/[^\w&'.\-/]/g, '').toUpperCase();
+        if (t.length < 2 || seen.has(t) || seen.size > 24) return;
+        seen.add(t);
+        words.append(el('span', { class: 'scan-word' }, t));
+      };
+      let result;
+      const minTime = new Promise((res) => setTimeout(res, 2600));
+      try { [result] = await Promise.all([scan(blob, onWord), minTime]); }
+      catch (e) { await minTime; result = { error: e.message || 'The dial could not be read.', found: [], fields: {} }; }
+      clearInterval(tick);
+      if (done) return;
+      pct.textContent = '100%';
+      status.textContent = result.error ? 'NO SIGNAL' : (result.found.length ? 'MATCH FOUND' : 'NO TEXT FOUND');
+      dlg.classList.add('scan-done');
+      await new Promise((res) => setTimeout(res, 650));
+      layer.remove(); hint.hidden = false;
+      dlg.classList.remove('scanning', 'scan-done');
+      preview(blob, result);
+    }
+
+    function preview(blob, result = null) {
       const url = URL.createObjectURL(blob);
+      let info = null;
+      if (result) {
+        info = result.found?.length
+          ? el('div', { class: 'scan-found' }, el('div', { class: 'scan-found-t' }, 'Read from the dial'),
+            result.found.map(([k, v]) => el('div', { class: 'scan-chip' }, el('span', {}, k), el('b', {}, v))))
+          : el('p', { class: 'muted' }, result.error ? `${result.error} You can fill in the details next.` : 'No writing could be read on the dial — you can choose the brand next.');
+      }
       const pv = el('div', { class: 'cam-preview' },
         el('div', { class: 'face face-' + cur + ' cam-pv-face' }, el('img', { src: url, alt: 'Face picture' })),
-        el('p', { class: 'muted' }, 'Is the whole watch head in the picture?'),
+        info || el('p', { class: 'muted' }, 'Is the whole watch head in the picture?'),
         el('div', { class: 'cam-msg-btns' },
-          el('button', { type: 'button', class: 'btn', onclick: () => { URL.revokeObjectURL(url); pv.remove(); shutter.disabled = false; dlg.classList.remove('flash'); } }, 'Retake'),
-          el('button', { type: 'button', class: 'btn primary', onclick: () => { URL.revokeObjectURL(url); finish({ blob, shape: cur }); } }, 'Use picture')));
+          el('button', { type: 'button', class: 'btn', onclick: () => { URL.revokeObjectURL(url); pv.remove(); shutter.disabled = false; dlg.classList.remove('flash'); if (!still) video.play().catch(() => {}); } }, 'Retake'),
+          el('button', { type: 'button', class: 'btn primary', onclick: () => { URL.revokeObjectURL(url); finish({ blob, shape: cur, scan: result }); } }, result ? 'Continue' : 'Use picture')));
       dlg.append(pv);
     }
 

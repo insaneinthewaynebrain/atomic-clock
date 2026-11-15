@@ -4,7 +4,7 @@ import { now, clock, isFresh } from './time.js';
 import { el, confirmModal, toast, signed, fmtDuration, fmtDateTime } from './ui.js';
 import { computeRun, watchStats, fmtOffset, fmtRate, grade, fmtRange, POSITIONS, posLabel, positionRates, restingAdvice } from './accuracy.js';
 import { openShareCard } from './sharecard.js';
-import { openWatchEditor, ownedWatches } from './collection.js';
+import { openWatchEditor, ownedWatches, addWatch as addWatchFlow } from './collection.js';
 
 const DAY = 86400000;
 const root = () => document.getElementById('tracker');
@@ -33,7 +33,7 @@ function stamp() {
 
 /* ---------- Actions ---------- */
 
-function addWatch() { openWatchEditor(null, { status: 'owned', select: true }); }
+function addWatch() { addWatchFlow('owned'); }
 function editWatch(w) { openWatchEditor(w); }
 
 async function deleteWatch(w) {
