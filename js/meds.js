@@ -147,7 +147,7 @@ export function checkMeds(meds, changed) {
     m.rang = true; store.save(); changed();
     ringAlert({
       icon: '💊', title: m.name || 'Medication',
-      label: `Time for your next dose${m.dose ? ` (${m.dose})` : ''} — if you need it. Remember to check the packet, e.g. whether to take it with food.`,
+      label: `Time for your next dose — if you need it. Remember to check the packet, e.g. whether to take it with food.`,
       sound: m.sound,
       buttons: [{ label: 'Not now' }, { label: 'I’ve taken it', kind: 'primary', fn: () => setTimeout(() => takeNow(m, changed), 200) }],
     });
@@ -221,24 +221,19 @@ function status(m, t = Date.now()) {
   const last = m.log[m.log.length - 1];
   const p = plan(m, t);
   if (!last || p.first) {
-    return { cls: 'idle', head: 'No recent doses', big: '', sub: p.best <= t ? 'You can take a dose now if you need it.' : `Your first dose of the day: ${when(p.best)}.`, p };
+    if (p.best > t + MIN) return { cls: 'idle', head: `First dose around ${when(p.best)}`, big: '', sub: 'That’s when your day starts — or take one sooner if you need it.' };
+    // As if a dose were taken now: when would the next one be?
+    const next = plan({ ...m, log: [...m.log, { t }] }, t).best;
+    return { cls: 'idle', head: 'Take a dose when you need it', big: '', sub: `If you take one now, your next dose will be around ${when(next)}.` };
   }
   if (t < p.soonest) {
-    return { cls: 'wait', head: `Next dose: ${when(p.best)}`, big: countdown(p.best - t),
-      sub: p.soonest < p.best - MIN ? `If you really need it, the earliest is ${when(p.soonest)}.` : 'Not before then.', p };
+    return { cls: 'wait', head: `Next dose around ${when(p.best)}`, big: countdown(p.best - t),
+      sub: p.soonest < p.best - MIN ? `If you really need it sooner, the earliest is ${when(p.soonest)}.` : 'Not before then.' };
   }
   if (t < p.best) {
-    return { cls: 'ok', head: `Best time: ${when(p.best)}`, big: countdown(p.best - t), sub: 'You can take it now if you need it.', p };
+    return { cls: 'ok', head: `Next dose around ${when(p.best)}`, big: countdown(p.best - t), sub: 'You can take it sooner if you need it.' };
   }
-  return { cls: 'due', head: 'Next dose is due', big: 'Now', sub: 'Take it when you need it.', p };
-}
-
-function planLine(m, s) {
-  const t = Date.now();
-  const p = periodAt(t);
-  const taken = m.log.filter((x) => x.t >= Math.min(p.w, t - 12 * H)).map((x) => el('span', { class: 'plan-dot done' }, `✓ ${hhmm(x.t)}`));
-  const todo = (s.p.today || []).map((x, i) => el('span', { class: 'plan-dot' + (i === 0 ? ' next' : '') }, hhmm(x)));
-  return el('div', { class: 'plan-line' }, taken, todo);
+  return { cls: 'due', head: 'Next dose is due now', big: '', sub: 'Take it when you need it.' };
 }
 
 const openSettings = new Set();   // which settings panels are open (kept while the screen redraws)
@@ -273,8 +268,6 @@ function settings(m, rerender) {
       (maxBox = maxStepper()),
       el('p', { class: 'stepper-help' }, 'If the packet says “every 4 to 6 hours”, set 4 and 6. If it gives only one number, leave “At most” as “Not given”.')),
     el('p', { class: 'pk-explain' }, explain),
-    el('label', { class: 'field' }, el('span', {}, 'How much is one dose? (optional)'),
-      el('input', { type: 'text', class: 'input', value: m.dose || '', placeholder: 'e.g. 2 tablets', onchange: (e) => { m.dose = e.target.value.trim(); store.save(); rerender(); } })),
     el('label', { class: 'field' }, el('span', {}, 'Remind me'), el('select', { class: 'input', onchange: (e) => { m.remind = e.target.value; schedule(m); store.save(); } },
       [['best', 'At the best time'], ['soonest', 'As soon as I’m allowed another dose']].map(([v, l]) => el('option', { value: v, selected: m.remind === v }, l)))),
     toneField(m.sound, (v) => { m.sound = v; store.save(); }, 'Reminder sound'),
@@ -322,10 +315,9 @@ export function viewMeds(box, rerender, meds) {
       el('div', { class: 'med-head' }, el('span', { class: 'bank-no' }, String(i + 1)),
         el('input', { type: 'text', class: 'input med-name', value: m.name, placeholder: 'Name, e.g. Paracetamol', 'aria-label': 'Medicine name',
           onchange: (ev) => { m.name = ev.target.value.trim(); store.save(); } })),
-      el('div', { class: 'med-rule small muted' }, `${m.dose ? m.dose + ' · ' : ''}up to ${m.perDay} time${m.perDay > 1 ? 's' : ''} a day · ${m.maxGap ? `${fmtH(m.minGap)} to ${fmtH(m.maxGap)} hours apart` : `at least ${hrs(m.minGap)} apart`}`),
+      el('div', { class: 'med-rule small muted' }, `Up to ${m.perDay} time${m.perDay > 1 ? 's' : ''} a day · ${m.maxGap ? `${fmtH(m.minGap)} to ${fmtH(m.maxGap)} hours apart` : `at least ${hrs(m.minGap)} apart`}`),
       ex ? el('div', { class: `notice ${ex.bad ? 'bad' : 'warn'} small` }, ex.text) : null,
       el('div', { class: 'med-status' }, head, big, sub),
-      planLine(m, s),
       el('div', { class: 'small muted center med-count' }, `${in24(m, Date.now())} of ${m.perDay} doses in the last 24 hours`),
       el('button', { type: 'button', class: 'btn primary wide big-btn', onclick: () => takeNow(m, rerender) }, '💊 I’ve taken a dose now'),
       el('p', { class: 'med-star' }, '* Before taking it, check the safety tips at the top — for example, whether to take it with food.'),

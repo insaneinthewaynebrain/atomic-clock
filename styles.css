@@ -1007,7 +1007,8 @@ body.tg-stage-open { overflow: hidden; }
 .med-card.ok, .med-card.due { border-color: rgba(52,211,153,.6); background: linear-gradient(180deg, rgba(52,211,153,.12), var(--surface)); }
 .med-card.ok .med-big { color: var(--green); }
 .med-card.due .med-big, .med-card.due .med-head-line { color: var(--green); }
-.med-card.idle .med-big:empty { display: none; }
+.med-big:empty { display: none; }
+.med-card .med-head-line { font-size: 20px; }
 .plan-line { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 10px 0 4px; }
 .plan-dot { padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
 .plan-dot.done { color: var(--green); border-color: rgba(52,211,153,.45); }
