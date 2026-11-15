@@ -997,3 +997,25 @@ body.tg-stage-open { overflow: hidden; }
 .pk-row select.input { flex: 1.3; min-height: 46px; }
 .pk-to { color: var(--muted); font-size: 13px; padding-top: 14px; }
 .food-tag { display: inline-block; margin: 0 0 10px; padding: 4px 10px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); font-size: 13px; }
+
+/* Medication: plan-based layout */
+.day-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.day-card p { margin: 8px 0 0; }
+.med-rule { margin-top: 8px; }
+.food-tag { margin-top: 8px; }
+.med-head-line { font-size: 18px; font-weight: 800; }
+.med-card.ok, .med-card.due { border-color: rgba(52,211,153,.6); background: linear-gradient(180deg, rgba(52,211,153,.12), var(--surface)); }
+.med-card.ok .med-big { color: var(--green); }
+.med-card.due .med-big, .med-card.due .med-head-line { color: var(--green); }
+.med-card.idle .med-big:empty { display: none; }
+.plan-line { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 10px 0 4px; }
+.plan-dot { padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
+.plan-dot.done { color: var(--green); border-color: rgba(52,211,153,.45); }
+.plan-dot.next { color: var(--accent-ink); background: var(--accent); border-color: transparent; }
+.med-count { margin: 4px 0 2px; }
+.med-links { display: flex; justify-content: center; gap: 18px; }
+.pk-q { display: grid; grid-template-columns: minmax(0, 1fr) 84px; gap: 10px; align-items: center; margin-top: 10px; font-size: 14px; }
+.pk-q .num-in { font-size: 20px; min-height: 46px; }
+.pk-explain { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.pk-explain b { color: var(--text); }
+.pk-end { display: flex; justify-content: space-between; gap: 10px; margin-top: 14px; }
