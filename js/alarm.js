@@ -1,5 +1,5 @@
 // Alarm section: 5 alarm banks (each with an optional sunrise wake light, and the choice of a set
-// time or the real local sunrise), Bedside mode, and the timers (countdown, stopwatch, laps, eggs,
+// time or the real local sunrise), Bedside mode, and the timers (countdown, stopwatch with laps, eggs,
 // medication) from timers.js.
 // A web app can only ring while it's open on screen (the iPhone pauses it when locked), so
 // Bedside mode keeps a dim clock showing all night.
@@ -24,7 +24,7 @@ const WORDS = [['speak', 'Spoken and shown on screen'], ['show', 'Shown on scree
 const WORD_HINT = { soft: 'calm, yoga-style affirmations', medium: 'an upbeat pep talk for the work day', harsh: 'a drill sergeant telling you to get up' };
 const OFFSETS = [-60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60];
 const VIEWS = [['alarms', '⏰', 'Alarms'], ['timer', '⏳', 'Timer'], ['stopwatch', '⏱️', 'Stopwatch'],
-  ['laps', '🏁', 'Lap timer'], ['eggs', '🥚', 'Egg timer'], ['meds', '💊', 'Medication']];
+  ['eggs', '🥚', 'Egg timer'], ['meds', '💊', 'Medication']];
 const $ = (id) => document.getElementById(id);
 const d = () => store.get();
 const dow = (date) => (date.getDay() + 6) % 7;   // Monday = 0
@@ -514,7 +514,7 @@ function sunToday(p) {
   return el('p', { class: 'muted small' }, a || b ? `Sunrise today ${a ? hhmm(a) : '—'} · tomorrow ${b ? hhmm(b) : '—'}` : 'No sunrise there at this time of year.');
 }
 
-function view() { const v = d().alarmView; return VIEWS.some(([k]) => k === v) ? v : 'alarms'; }
+function view() { const v = d().alarmView === 'laps' ? 'stopwatch' : d().alarmView; return VIEWS.some(([k]) => k === v) ? v : 'alarms'; }
 
 function render() {
   const box = $('tool-alarm-body');

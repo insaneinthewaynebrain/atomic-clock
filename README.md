@@ -15,7 +15,7 @@ A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouT
 - **Alarm & timers** (in Tools): 5 saved alarm banks, each with an optional sunrise wake light
   (screen glows red → orange → warm white before the alarm) and a set time or the real local sunrise;
   Bedside mode with a sleep timer and optional on-device listening for snoring and restless sleep
-  (nothing is recorded); countdown timer, stopwatch, lap timer, egg timer, and up to 20 medication
+  (nothing is recorded); countdown timer, stopwatch with laps (fastest/average/slowest), egg timer, and up to 20 medication
   timers planned from the packet (most doses in 24 hours, shortest gap, optional longest gap) and your
   wake-up and bedtime, re-planned after each dose). Every alarm and timer can use one of three tones (Soft spa, Medium pop,
   Harsh rock), composed for this app and synthesised live with Web Audio, so they're royalty-free and

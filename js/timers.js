@@ -1,4 +1,4 @@
-// Timers in the Alarm section: countdown, stopwatch, lap timer, egg timer and up to 20 medication
+// Timers in the Alarm section: countdown, stopwatch with laps, egg timer and up to 20 medication
 // timers. Running timers store their end time, so they carry on through tab changes and reloads.
 import * as store from './store.js';
 import { el, pad, toast } from './ui.js';
@@ -16,7 +16,12 @@ function T() {
   const t = (d.timers ||= {});
   t.countdown ||= { dur: 5 * 60000, sound: 'medium' };
   t.stopwatch ||= { base: 0, since: null };
-  t.laps ||= { base: 0, since: null, laps: [] };
+  t.stopwatch.laps ||= [];
+  if (t.laps) {            // the old separate lap timer: bring it into the stopwatch if that one is empty
+    const sw = t.stopwatch, old = t.laps;
+    if (!sw.base && !sw.since && (old.base || old.since)) Object.assign(sw, { base: old.base, since: old.since, laps: old.laps || [] });
+    delete t.laps;
+  }
   t.egg ||= { type: 'soft', size: 'L', cold: true };
   t.meds ||= [];
   if (!t.meds.length) t.meds.push(newMed());
@@ -106,52 +111,64 @@ function viewTimer(box, rerender) {
   };
 }
 
-/* ---------- Stopwatch ---------- */
+/* ---------- Stopwatch with laps ---------- */
+// One stopwatch: Start/Stop on the right, Lap (while running) or Reset (while stopped) on the left.
+// s.laps holds the total time at each lap press, so lap times are the gaps between them.
 const elapsed = (s) => s.base + (s.since ? Date.now() - s.since : 0);
 function toggle(s) { if (s.since) { s.base += Date.now() - s.since; s.since = null; } else s.since = Date.now(); save(); }
 
 function viewStopwatch(box, rerender) {
   const s = T().stopwatch;
-  const disp = el('div', { class: 'big-time sw' }, clock(elapsed(s), true));
-  box.append(el('div', { class: 'card timer-card' },
-    el('div', { class: 'muted small center' }, s.since ? 'Running' : elapsed(s) ? 'Stopped' : 'Ready'),
-    disp,
-    el('div', { class: 'btn-pair' },
-      el('button', { type: 'button', class: 'btn big-btn', disabled: !!s.since || !elapsed(s), onclick: () => { s.base = 0; s.since = null; save(); rerender(); } }, 'Reset'),
-      el('button', { type: 'button', class: 'btn big-btn ' + (s.since ? 'stop-btn' : 'primary'), onclick: () => { toggle(s); rerender(); } }, s.since ? 'Stop' : elapsed(s) ? 'Continue' : 'Start'))),
-  el('p', { class: 'muted small center' }, 'Keeps running if you leave this screen or close the app.'));
-  return () => { disp.textContent = clock(elapsed(s), true); };
-}
-
-/* ---------- Lap timer ---------- */
-function viewLaps(box, rerender) {
-  const s = T().laps;
-  const tot = el('div', { class: 'big-time sw' }, clock(elapsed(s), true));
-  const lapsAt = s.laps;                          // cumulative ms at each lap
+  const lapsAt = s.laps;
   const lapTimes = lapsAt.map((v, i) => v - (i ? lapsAt[i - 1] : 0));
   const best = lapTimes.length > 1 ? Math.min(...lapTimes) : null, worst = lapTimes.length > 1 ? Math.max(...lapTimes) : null;
-  const curLap = el('span', { class: 'lap-cur' }, '');
-  const cur = () => elapsed(s) - (lapsAt.length ? lapsAt[lapsAt.length - 1] : 0);
-  const running = !!s.since, any = elapsed(s) > 0;
-  const rows = lapTimes.map((lt, i) => el('div', { class: 'lap-row' + (lt === best ? ' best' : lt === worst ? ' worst' : '') },
-    el('span', {}, `Lap ${i + 1}`), el('span', { class: 'lap-t' }, clock(lt, true)), el('span', { class: 'muted' }, clock(lapsAt[i], true)))).reverse();
   const avg = lapTimes.length ? lapTimes.reduce((x, y) => x + y, 0) / lapTimes.length : 0;
+  const running = !!s.since, any = elapsed(s) > 0;
+  const cur = () => elapsed(s) - (lapsAt.length ? lapsAt[lapsAt.length - 1] : 0);
+
+  const tot = el('div', { class: 'big-time sw' }, clock(elapsed(s), true));
+  const curLap = el('span', { class: 'lap-cur' }, clock(cur(), true));
+  const liveLap = el('span', { class: 'lap-t' }, clock(cur(), true));
+  const liveTot = el('span', { class: 'muted' }, clock(elapsed(s), true));
+
+  const lap = () => { s.laps.push(elapsed(s)); save(); rerender(); };
+  const reset = () => { s.base = 0; s.since = null; s.laps = []; save(); rerender(); };
+
+  const rows = lapTimes.map((lt, i) => {
+    const diff = i ? lt - lapTimes[i - 1] : null;
+    return el('div', { class: 'lap-row' + (lt === best ? ' best' : lt === worst ? ' worst' : '') },
+      el('span', {}, `Lap ${i + 1}`),
+      el('span', { class: 'lap-t' }, clock(lt, true),
+        diff != null && lapTimes.length > 1 ? el('small', { class: 'lap-diff ' + (diff <= 0 ? 'good-t' : 'bad-t') }, `${diff <= 0 ? '−' : '+'}${clock(Math.abs(diff), true)}`) : null),
+      el('span', { class: 'muted' }, clock(lapsAt[i], true)));
+  }).reverse();
+  // While going, the lap in progress sits at the top of the list and counts up.
+  const liveRow = any && (running || lapsAt.length) ? el('div', { class: 'lap-row live' },
+    el('span', {}, `Lap ${lapsAt.length + 1}`), liveLap, liveTot) : null;
+
   box.append(el('div', { class: 'card timer-card' },
+    el('div', { class: 'muted small center' }, running ? 'Running' : any ? 'Stopped' : 'Ready'),
     tot,
-    el('div', { class: 'muted small center' }, `Lap ${lapsAt.length + 1}: `, curLap),
+    lapsAt.length ? el('div', { class: 'muted small center' }, `Lap ${lapsAt.length + 1}: `, curLap) : null,
     el('div', { class: 'btn-pair' },
       running
-        ? el('button', { type: 'button', class: 'btn big-btn', onclick: () => { s.laps.push(elapsed(s)); save(); rerender(); } }, 'Lap')
-        : el('button', { type: 'button', class: 'btn big-btn', disabled: !any, onclick: () => { s.base = 0; s.since = null; s.laps = []; save(); rerender(); } }, 'Reset'),
+        ? el('button', { type: 'button', class: 'btn big-btn', onclick: lap }, 'Lap')
+        : el('button', { type: 'button', class: 'btn big-btn', disabled: !any, onclick: reset }, 'Reset'),
       el('button', { type: 'button', class: 'btn big-btn ' + (running ? 'stop-btn' : 'primary'), onclick: () => { toggle(s); rerender(); } }, running ? 'Stop' : any ? 'Continue' : 'Start'))),
   lapTimes.length ? el('div', { class: 'card' },
-    el('div', { class: 'lap-sum' },
-      el('div', {}, el('span', { class: 'muted small' }, 'Fastest'), el('b', { class: 'good-t' }, clock(Math.min(...lapTimes), true))),
+    lapTimes.length > 1 ? el('div', { class: 'lap-sum' },
+      el('div', {}, el('span', { class: 'muted small' }, 'Fastest'), el('b', { class: 'good-t' }, clock(best, true))),
       el('div', {}, el('span', { class: 'muted small' }, 'Average'), el('b', {}, clock(avg, true))),
-      el('div', {}, el('span', { class: 'muted small' }, 'Slowest'), el('b', { class: 'bad-t' }, clock(Math.max(...lapTimes), true)))),
+      el('div', {}, el('span', { class: 'muted small' }, 'Slowest'), el('b', { class: 'bad-t' }, clock(worst, true)))) : null,
     el('div', { class: 'lap-head muted small' }, el('span', {}, 'Lap'), el('span', {}, 'Lap time'), el('span', {}, 'Total')),
-    rows) : el('p', { class: 'muted small center' }, 'Tap Start, then Lap each time round. Fastest lap shows green, slowest red.'));
-  return () => { tot.textContent = clock(elapsed(s), true); curLap.textContent = clock(cur(), true); };
+    liveRow, rows) : null,
+  el('p', { class: 'muted small center' }, lapTimes.length
+    ? 'Fastest lap shows green, slowest red; the small figure is the change from the lap before. Keeps running if you leave this screen or close the app.'
+    : 'Tap Start, then Lap each time round — or just Start and Stop for a plain stopwatch. Keeps running if you leave this screen or close the app.'));
+  return () => {
+    const e = elapsed(s), c = clock(cur(), true);
+    tot.textContent = clock(e, true); curLap.textContent = c; liveLap.textContent = c; liveTot.textContent = clock(e, true);
+  };
 }
 
 /* ---------- Egg timer ---------- */
@@ -280,7 +297,7 @@ function viewEggs(box, rerender) {
   return null;
 }
 
-const VIEWS = { timer: viewTimer, stopwatch: viewStopwatch, laps: viewLaps, eggs: viewEggs, meds: (box, rerender) => viewMeds(box, rerender, T().meds) };
+const VIEWS = { timer: viewTimer, stopwatch: viewStopwatch, laps: viewStopwatch, eggs: viewEggs, meds: (box, rerender) => viewMeds(box, rerender, T().meds) };
 
 /** Draws one timer screen into `box`; returns a function that refreshes the live numbers. */
 export function renderView(v, box, rerender) {

@@ -659,8 +659,10 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 .bs-exit { position: absolute; bottom: calc(var(--safe-bottom) + 24px); background: none; border: 1px solid #222; color: #444; border-radius: 99px; padding: 10px 18px; font-size: 14px; }
 
 /* Alarm section navigation */
-.alarm-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 4px 0 4px; }
-@media (min-width: 520px) { .alarm-nav { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.alarm-nav { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin: 4px 0 4px; }
+.alarm-nav .anav-btn { grid-column: span 2; }
+.alarm-nav .anav-btn:nth-child(n+4) { grid-column: span 3; }   /* 3 on top, 2 wider below */
+@media (min-width: 520px) { .alarm-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); } .alarm-nav .anav-btn, .alarm-nav .anav-btn:nth-child(n+4) { grid-column: auto; } }
 .anav-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 58px; padding: 6px 2px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 700; min-width: 0; }
 .anav-btn span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .anav-icon { font-size: 20px; line-height: 1.1; }
@@ -729,6 +731,9 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 .lap-t { font-weight: 700; }
 .lap-row.best .lap-t, .good-t { color: var(--green); }
 .lap-row.worst .lap-t, .bad-t { color: var(--red); }
+.lap-row.live .lap-t { color: var(--text); }
+.lap-row.live span:first-child { font-weight: 700; }
+.lap-diff { display: block; font-size: 11px; font-weight: 600; }
 .lap-cur { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 700; }
 
 /* Egg timer */
