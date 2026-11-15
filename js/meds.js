@@ -268,8 +268,13 @@ function settings(m, rerender) {
       (maxBox = maxStepper()),
       el('p', { class: 'stepper-help' }, 'If the packet says “every 4 to 6 hours”, set 4 and 6. If it gives only one number, leave “At most” as “Not given”.')),
     el('p', { class: 'pk-explain' }, explain),
-    el('label', { class: 'field' }, el('span', {}, 'Remind me'), el('select', { class: 'input', onchange: (e) => { m.remind = e.target.value; schedule(m); store.save(); } },
-      [['best', 'At the best time'], ['soonest', 'As soon as I’m allowed another dose']].map(([v, l]) => el('option', { value: v, selected: m.remind === v }, l)))),
+    el('div', { class: 'field' }, el('span', { class: 'stepper-label' }, 'When should the reminder ring?'),
+      el('div', { class: 'remind-choice' }, [
+        ['best', 'At the recommended time', 'Doses spread evenly through your day'],
+        ['soonest', 'As soon as I’m allowed', 'When the shortest wait is over'],
+      ].map(([v, l, h]) => el('button', { type: 'button', class: 'remind-opt' + (m.remind === v ? ' on' : ''), 'aria-pressed': String(m.remind === v),
+        onclick: () => { m.remind = v; schedule(m); store.save(); openSettings.add(m.id); rerender(); } },
+        el('span', { class: 'remind-tick' }, m.remind === v ? '✓' : ''), el('span', { class: 'remind-text' }, el('b', {}, l), el('span', {}, h)))))),
     toneField(m.sound, (v) => { m.sound = v; store.save(); }, 'Reminder sound'),
     el('div', { class: 'pk-end' },
       el('button', { type: 'button', class: 'btn sm', disabled: !m.log.length, onclick: async () => {

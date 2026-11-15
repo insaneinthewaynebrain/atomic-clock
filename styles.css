@@ -1038,3 +1038,13 @@ body.tg-stage-open { overflow: hidden; }
 .packet .pk-explain { font-size: 14px; margin-top: 12px; }
 .med-star { font-size: 13px; color: var(--muted); margin: 8px 0 0; text-align: center; }
 @media (max-width: 360px) { .stepper { grid-template-columns: 44px minmax(72px, auto) 44px; } .step-btn { width: 44px; height: 44px; } }
+
+.remind-choice { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.remind-opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; border-radius: 14px; border: 2px solid var(--line); background: var(--bg); color: var(--text); }
+.remind-opt.on { border-color: var(--accent); background: rgba(76,194,255,.1); }
+.remind-tick { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-weight: 900; color: var(--accent-ink); }
+.remind-opt.on .remind-tick { background: var(--accent); border-color: var(--accent); }
+.remind-text { display: flex; flex-direction: column; gap: 2px; font-size: 16px; }
+.remind-text span { font-size: 13px; color: var(--muted); }
+.field > .stepper-label { color: var(--text); }
+.packet .field:has(.remind-choice) { margin-top: 16px; }
