@@ -1059,3 +1059,5 @@ dialog.severe .modal-title { color: var(--red); }
 .terms-list { padding-left: 20px; font-size: 14px; margin: 8px 0; }
 .terms-list li { margin: 8px 0; }
 .link-btn.inline { padding: 0; font-size: inherit; color: inherit; }
+.med-card .packet { margin-top: 12px; margin-bottom: 4px; padding-top: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.med-card .med-star { margin: 10px 0 8px; }

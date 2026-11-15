@@ -335,22 +335,32 @@ export const MED_TERMS = [
   'If you think you or someone else has taken too much of a medicine, get medical help straight away (NHS 111, or 999 in an emergency) — even if they feel well.',
 ];
 
+// The terms are asked for again at random — somewhere between 3 and 14 days after the last time.
+const nextTermsCheck = () => Date.now() + (3 + Math.random() * 11) * DAY;
+function termsDue() {
+  const t = store.get().medTerms;
+  if (!t) return true;
+  if (!t.next) { t.next = nextTermsCheck(); store.save(); }
+  return Date.now() >= t.next;
+}
+
 function termsCard(rerender) {
+  const again = !!store.get().medTerms;
   const tick = el('input', { type: 'checkbox', class: 'check' });
   const go = el('button', { type: 'button', class: 'btn primary wide big-btn', disabled: true, onclick: () => {
-    store.get().medTerms = { at: Date.now(), v: 1 }; store.save(); rerender();
+    store.get().medTerms = { at: Date.now(), v: 1, next: nextTermsCheck() }; store.save(); rerender();
   } }, 'Continue');
   tick.addEventListener('change', () => { go.disabled = !tick.checked; });
   return el('div', { class: 'card terms-card' },
     el('h2', { class: 'card-title' }, '💊 Before you use medication timers'),
-    el('p', { class: 'small' }, 'Please read and accept these terms:'),
+    el('p', { class: 'small' }, again ? 'From time to time we ask you to read these again. Please read and accept them to carry on:' : 'Please read and accept these terms:'),
     el('ol', { class: 'terms-list' }, MED_TERMS.map((x) => el('li', {}, x))),
     el('label', { class: 'field check-field accept-box' }, tick, el('span', {}, 'I have read and accept these terms.')),
     go);
 }
 
 export function viewMeds(box, rerender, meds) {
-  if (!store.get().medTerms) { box.append(termsCard(rerender)); return null; }
+  if (termsDue()) { box.append(termsCard(rerender)); return null; }
   meds.forEach(tidy);
   const cards = meds.map((m, i) => {
     const s = status(m);
@@ -362,18 +372,19 @@ export function viewMeds(box, rerender, meds) {
           onchange: (ev) => { m.name = ev.target.value.trim(); store.save(); } })),
       el('div', { class: 'med-rule small muted' }, `Up to ${m.perDay} time${m.perDay > 1 ? 's' : ''} a day · ${m.maxGap ? `${fmtH(m.minGap)} to ${fmtH(m.maxGap)} hours apart` : `at least ${hrs(m.minGap)} apart`}`),
       ex ? el('div', { class: `notice ${ex.bad ? 'bad' : 'warn'} small` }, ex.text) : null,
+      settings(m, rerender),
       el('div', { class: 'med-status' }, head, big, sub),
       el('div', { class: 'small muted center med-count' }, `${in24(m, Date.now())} of ${m.perDay} doses in the last 24 hours`),
-      el('button', { type: 'button', class: 'btn primary wide big-btn', onclick: () => takeNow(m, rerender) }, '💊 I’ve taken a dose now'),
       el('p', { class: 'med-star' }, '* Before taking it, check the safety tips at the top — for example, whether to take it with food.'),
+      el('button', { type: 'button', class: 'btn primary wide big-btn', onclick: () => takeNow(m, rerender) },
+        m.log.length ? '💊 I’ve taken a dose now' : '▶ Start the timer — I’ve taken a dose now'),
       el('div', { class: 'med-links' },
-        el('button', { type: 'button', class: 'link-btn', onclick: () => tookEarlier(m, rerender) }, 'Took it earlier?'),
+        el('button', { type: 'button', class: 'link-btn', onclick: () => tookEarlier(m, rerender) }, m.log.length ? 'Took it earlier?' : 'I took it earlier — choose the time'),
         m.log.length ? el('button', { type: 'button', class: 'link-btn', onclick: async () => {
           const l = m.log[m.log.length - 1];
           if (!(await confirmModal('Undo the last dose?', `Removes the dose at ${when(l.t)}.`, 'Undo'))) return;
           m.log.pop(); schedule(m); store.save(); rerender();
-        } }, 'Undo last dose') : null),
-      settings(m, rerender));
+        } }, 'Undo last dose') : null));
     return { card, m, head, big, sub };
   });
   box.append(
