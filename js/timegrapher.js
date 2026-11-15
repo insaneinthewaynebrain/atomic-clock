@@ -68,8 +68,6 @@ const $ = (id) => document.getElementById(id);
 let ctx = null, stream = null, node = null;
 // mode: 'off' (mic closed) | 'baseline' | 'paused' | 'countdown' | 'listening'
 let mode = 'off';
-let running = false;          // true while listening for ticks
-let ticks = [];               // recent tick times (s, audio clock) from the chosen band
 let runTicks = [];            // every tick from the chosen band during this measurement
 let startT = 0, listenFrom = 0, selectAt = 0, lastResult = null, bphChoice = 'auto', curBph = null;
 let baseline = null;          // { at, bands: [{ median, p95, p99 }], db, spikes, room }
@@ -151,7 +149,6 @@ function processBlock(start, data, sr) {
   const t = (start + data.length) / sr;
   if (mode === 'baseline' && t >= baseUntil) finishBaseline();
   if (mode === 'listening' && !chosen && t >= selectAt) chooseBand();
-  if (chosen) ticks = chosen.ticks;
 }
 
 const toDb = (v) => 20 * Math.log10(Math.max(v, 1e-6));
@@ -189,7 +186,6 @@ function chooseBand() {
   chosen = best.b;
   selectInfo = { hz: chosen.f0, ratio: best.ratio, rhythm: best.rhythm };
   bands.forEach((b) => { b.stats = []; });
-  ticks = chosen.ticks;
   runTicks = chosen.ticks.slice();
 }
 
@@ -424,7 +420,7 @@ async function startMeasurement() {
 }
 
 function beginListening() {
-  ticks = []; runTicks = []; lastResult = null; chosen = null; selectInfo = null; curBph = null;
+  runTicks = []; lastResult = null; chosen = null; selectInfo = null; curBph = null;
   bands.forEach((b, i) => {
     Object.assign(b, { env: 0, noise: 1e-4, peak: 1e-3, armed: true, lastTick: -1, ticks: [], stats: [] });
     b.gate = baseline ? baseline.bands[i].p95 * 2 : 0;   // must be clearly above the room’s usual noise
@@ -434,14 +430,12 @@ function beginListening() {
   selectAt = listenFrom + 5;
   lastAnalyse = 0; lastDraw = 0; lastTickSeen = 0;
   mode = 'listening';
-  running = true;
   resetLive();
 }
 
 // Stops listening but keeps the microphone and the background measurement.
 function stopListening() {
   clearInterval(countdownTimer);
-  running = false;
   if (mode === 'listening' || mode === 'countdown' || mode === 'baseline') mode = ctx ? 'paused' : 'off';
 }
 

@@ -79,7 +79,7 @@ export async function snapshotOnUpdate(appVersion) {
   const last = d.lastRunVersion;
   if (last === appVersion) return;
   try {
-    if (last && (d.watches.length || d.wear.length)) {
+    if (last) {
       await snapTx('readwrite', (st) => st.put({ at: Date.now(), fromVersion: last, toVersion: appVersion, json: JSON.stringify(store.exportData()) }));
       const all = await listSnapshots();
       for (const old of all.slice(3)) await snapTx('readwrite', (st) => st.delete(old.at));

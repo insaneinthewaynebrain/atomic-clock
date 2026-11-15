@@ -1,4 +1,4 @@
-// Tools: "Set to the minute" countdown with beeps, date-change danger zone, moon phase, GMT helper.
+// Tools: date-change danger zone (also shown on the Clock tab), moon phase, GMT helper.
 import * as store from './store.js';
 import { now } from './time.js';
 import { el, pad } from './ui.js';

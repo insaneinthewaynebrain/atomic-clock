@@ -20,14 +20,8 @@ export const GALLERIES = [
     tip: 'Charge the lume with a torch, then turn the lights off. Flash off, phone rested on something still: the iPhone camera uses Night mode (a longer exposure) by itself in the dark.' },
 ];
 
-const d = () => store.get();
 const fmtWhen = (t) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 export const placeText = (p) => [p.town, p.region].filter(Boolean).join(', ') || (p.lat != null ? `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}` : '');
-
-/** All photo ids in a watch's galleries (for backups and deleting). */
-export function galleryPhotoIds(w) {
-  return Object.values(w.galleries || {}).flat().map((p) => p.id);
-}
 
 let asked = false;
 function keepStorage() {

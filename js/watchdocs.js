@@ -1,7 +1,7 @@
 // Per-watch documents: the insurance photo checklist, the insurance PDF and the "memory book" PDF.
 // The PDFs are printable pages (Print → Save as PDF, or share the file), built on the phone; nothing is uploaded.
 import * as store from './store.js';
-import { el, openModal, confirmModal, toast } from './ui.js';
+import { el, confirmModal, toast } from './ui.js';
 import { addPhoto, deletePhoto, fillImg, photoDataUrl } from './photos.js';
 import { detailSections, money, movementLabel, subtitle, SELLER_TYPES, openPhotoViewer, daysWorn, getWatch } from './collection.js';
 import { FEATURE_LABELS } from './watchdb.js';

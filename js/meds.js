@@ -29,7 +29,6 @@ function countdown(ms) {
 }
 const fmtH = (h) => String(Math.round(h * 10) / 10);
 const hrs = (h) => `${Math.round(h * 10) / 10} hour${h === 1 ? '' : 's'}`;
-const num = (v, lo, hi, dflt) => { const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt; };
 
 /* ---------- Data ---------- */
 export function newMed() {
@@ -272,6 +271,7 @@ function settings(m, rerender) {
   const explain = el('b', {}, explainText());
   const timesTxt = (n) => `${n} time${n === 1 ? '' : 's'}`;
   const hoursTxt = (h) => `${h} hour${h === 1 ? '' : 's'}`;
+  let maxBox;   // the "At most" stepper, rebuilt when its value is corrected
   const det = el('details', { class: 'packet', open: !m.name || !m.log.length || openSettings.has(m.id), ontoggle: () => { if (det.open) openSettings.add(m.id); else openSettings.delete(m.id); } },
     el('summary', {}, '⚙️ What the packet says'),
     stepper('How many times a day, at most?', m.perDay, { min: 1, max: 12, show: timesTxt, help: 'Look for “no more than … doses in 24 hours”.' }, (v) => { m.perDay = v; changed(); }),
@@ -300,7 +300,6 @@ function settings(m, rerender) {
         if (!(await confirmModal(`Delete ${m.name || 'this medicine'}?`, '', 'Delete', true))) return;
         const list = store.get().timers.meds; list.splice(list.indexOf(m), 1); store.save(); rerender();
       } }, 'Delete')));
-  var maxBox;
   function maxStepper() {
     // 0 means "not given"; going up from there starts at the "at least" time + 1 hour.
     return stepper('At most', m.maxGap || 0, { min: 0, max: 48, show: (h) => (h ? hoursTxt(h) : 'Not given') }, (raw) => {

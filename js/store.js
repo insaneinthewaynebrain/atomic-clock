@@ -85,7 +85,9 @@ export function importData(obj) {
   }
   const keepCaches = { w: data.weather.cache, r: data.currency.ratesCache };
   const photos = obj && isObj(obj.photos) ? obj.photos : null;
+  const runVersion = data.lastRunVersion;
   data = merge(defaults(), d);
+  data.lastRunVersion = runVersion;
   if (!data.weather.cache) data.weather.cache = keepCaches.w;
   if (!data.currency.ratesCache) data.currency.ratesCache = keepCaches.r;
   // A restored backup counts as backed up at the time it was made.

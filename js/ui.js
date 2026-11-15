@@ -20,8 +20,6 @@ export function el(tag, attrs = {}, ...kids) {
 export const pad = (n, w = 2) => String(n).padStart(w, '0');
 
 /* ---------- Modal ---------- */
-let current = null;
-
 export function openModal({ title, content, actions = [], onClose, className = '' }) {
   const dlg = document.getElementById('modal');
   if (dlg.open) { dlg.onclose = null; dlg.close(); }
@@ -47,14 +45,11 @@ export function openModal({ title, content, actions = [], onClose, className = '
   }
   dlg.append(box);
   // A replaced modal's close event arrives after the new one has opened: ignore it while the dialog is open again.
-  dlg.onclose = () => { if (dlg.open) return; current = null; onClose && onClose(); };
+  dlg.onclose = () => { if (dlg.open) return; onClose && onClose(); };
   dlg.onclick = (e) => { if (e.target === dlg) close(); };
   dlg.showModal();
-  current = { close, body, dlg };
-  return current;
+  return { close, body, dlg };
 }
-
-export function closeModal() { current && current.close(); }
 
 export function confirmModal(title, message, okLabel = 'OK', danger = false) {
   return new Promise((resolve) => {
@@ -68,29 +63,6 @@ export function confirmModal(title, message, okLabel = 'OK', danger = false) {
       ],
       onClose: () => resolve(result),
     });
-  });
-}
-
-export function promptModal(title, initial = '', placeholder = '', okLabel = 'Save') {
-  return new Promise((resolve) => {
-    let result = null;
-    const input = el('input', { class: 'input', type: 'text', value: initial, placeholder, autocapitalize: 'words', enterkeyhint: 'done' });
-    const m = openModal({
-      title,
-      content: input,
-      actions: [
-        { label: 'Cancel' },
-        {
-          label: okLabel, kind: 'primary',
-          onClick: () => { const v = input.value.trim(); if (!v) { input.focus(); return false; } result = v; },
-        },
-      ],
-      onClose: () => resolve(result),
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { const v = input.value.trim(); if (v) { result = v; m.close(); } }
-    });
-    setTimeout(() => { input.focus(); input.select(); }, 60);
   });
 }
 
@@ -140,11 +112,6 @@ export function fmtDateTime(t) {
   const d = new Date(t);
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) +
     ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
-}
-
-export function fmtShortTime(t) {
-  const d = new Date(t);
-  return pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
 
 export function fmtAgo(t, nowMs = Date.now()) {

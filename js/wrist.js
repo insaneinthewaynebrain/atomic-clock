@@ -46,10 +46,9 @@ function entryDays(e) {
 
 function wearStats() {
   const per = {};
-  const allDays = new Set();
   for (const e of d().wear) {
     const p = (per[e.watchId] ||= { days: new Set(), last: 0 });
-    for (const k of entryDays(e)) { p.days.add(k); allDays.add(k + e.watchId); }
+    for (const k of entryDays(e)) p.days.add(k);
     p.last = Math.max(p.last, e.off || now());
   }
   const total = Object.values(per).reduce((n, p) => n + p.days.size, 0);

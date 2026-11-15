@@ -2,7 +2,7 @@
 import * as store from './store.js';
 import { now, clock, isFresh } from './time.js';
 import { el, confirmModal, toast, signed, fmtDuration, fmtDateTime } from './ui.js';
-import { computeRun, watchStats, fmtOffset, fmtRate, grade, fmtRange, POSITIONS, posLabel, positionRates, restingAdvice } from './accuracy.js';
+import { watchStats, fmtOffset, fmtRate, grade, fmtRange, POSITIONS, posLabel, positionRates, restingAdvice } from './accuracy.js';
 import { openShareCard } from './sharecard.js';
 import { openWatchEditor, ownedWatches, addWatch as addWatchFlow } from './collection.js';
 

@@ -85,7 +85,8 @@ const CSV_COLS = [
   ['purchaseDate', 'Purchase date'], ['purchasePrice', 'Purchase price'], ['sellerType', 'Seller type'], ['boughtFrom', 'Bought from'], ['sellerAddress', 'Shop address'], ['sellerContact', 'Shop contact'], ['box', 'Box'], ['papers', 'Papers'],
   ['condition', 'Condition'], ['value', 'Estimated value'], ['targetPrice', 'Target price'], ['soldDate', 'Sold date'], ['soldPrice', 'Sold price'],
   ['soldTo', 'Sold to'], ['lastService', 'Last service'], ['serviceInterval', 'Service interval (years)'], ['warrantyUntil', 'Warranty until'],
-  ['serial', 'Serial'], ['willStatus', 'In will'], ['willTo', 'To be left to'], ['notes', 'Notes'],
+  ['batteryChanged', 'Battery changed'], ['batteryInterval', 'Battery lasts (years)'],
+  ['serial', 'Serial'], ['willStatus', 'In will'], ['willTo', 'To be left to'], ['willNote', 'Note for them'], ['notes', 'Notes'],
 ];
 
 export function buildCsv(includeSerial = true) {

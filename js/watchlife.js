@@ -4,7 +4,7 @@
 //  • "Where I've been" — a world map of every place the watch has been: gallery photos with a location, plus
 //    places added by hand (type-ahead search, as in Weather).
 import * as store from './store.js';
-import { el, openModal, confirmModal, placeSearchModal, placeLabel } from './ui.js';
+import { el, confirmModal, placeSearchModal, placeLabel } from './ui.js';
 import { detailSections, getWatch, ownedWatches, money, openWatchDetail } from './collection.js';
 import { watchStats, fmtRate } from './accuracy.js';
 import { GALLERIES, placeText } from './galleries.js';

@@ -159,7 +159,9 @@ function renderAbout() {
         el('li', {}, 'Weather and place search: Open-Meteo.com — UK Met Office model where available'),
         el('li', {}, 'Your town name: BigDataCloud (backup: OpenStreetMap Nominatim)'),
         el('li', {}, 'Exchange rates: ExchangeRate-API (open.er-api.com)'),
-        el('li', {}, 'Moon phase: calculated on your phone'))),
+        el('li', {}, 'Wake-up quotes: DummyJSON (dummyjson.com)'),
+        el('li', {}, 'Dial reading (Tesseract.js) and for-sale QR codes: run on your phone, downloaded once from jsDelivr'),
+        el('li', {}, 'Moon phase and sunrise: calculated on your phone'))),
     el('p', { class: 'muted small center' }, `Version ${appVersion} · Brand names are used for identification only.`));
 }
 

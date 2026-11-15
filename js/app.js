@@ -9,7 +9,7 @@ import { initWeather, showWeather } from './weather.js';
 import { initCurrency, showCurrency } from './currency.js';
 import { initCollection, showCollection, hideCollection, bannerHooks } from './collection.js';
 import { initTools, showTools, hideTools, registerTool } from './tools.js';
-import { openTool, goHome } from './tools.js';
+import { goHome } from './tools.js';
 import { backupBanner, snapshotOnUpdate } from './backup.js';
 import { APP_NAME } from './config.js';
 import * as wrist from './wrist.js';
@@ -21,7 +21,7 @@ import * as watchdocs from './watchdocs.js';
 import * as galleries from './galleries.js';
 import * as watchlife from './watchlife.js';
 
-export const APP_VERSION = '60';
+export const APP_VERSION = '61';
 
 // Feature modules that register their own tabs/tools.
 const EXTRA_MODULES = [wrist, watchlife, galleries, watchdocs, setting, insurance, timegrapher, alarm];

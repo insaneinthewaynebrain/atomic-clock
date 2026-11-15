@@ -352,6 +352,8 @@ export function openWatchEditor(watch, opts = {}) {
             if (opts.select || nw.status === 'owned') d().selectedWatchId = nw.id;
           } else {
             Object.assign(watch, vals, { status: w.status, photos: w.photos }, face);
+            // Sold or moved to the wishlist while on the wrist: end that wear so it stops counting.
+            if (w.status !== 'owned') for (const e of d().wear) if (e.watchId === watch.id && !e.off) e.off = Date.now();
           }
           changed();
           toast('Saved');
