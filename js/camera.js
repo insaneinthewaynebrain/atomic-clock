@@ -3,7 +3,7 @@
 // Also works with a photo from the library: drag and pinch (or use the zoom slider) to line it up.
 import { el, toast } from './ui.js';
 import * as store from './store.js';
-import { findDial } from './dialfind.js';
+import { findDial, traceBezel } from './dialfind.js';
 
 export const SHAPES = [
   ['circle', 'Circle'],
@@ -398,7 +398,24 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
           const sane = found && r * k >= (f.w / 2) * 0.8 && r * k <= (f.w / 2) * 1.45;
           if (sane) {
             const cx = found.cx * (S / LOOK), cy = found.cy * (S / LOOK);
-            main = { blob: await toBlob(cropFrom(cx - r, cy - r, 2 * r), type), shape: cur, how: 'snap' };
+            // Trace the bezel's real edge (on a half-size copy) and fit an oval: centres the crop on the bezel even
+            // when the rough find was off, and straightens a watch seen at a slight angle into a round face.
+            const HALF = S / 2, half = document.createElement('canvas'); half.width = half.height = HALF;
+            const hg = half.getContext('2d', { willReadFrequently: true }); hg.drawImage(shot, 0, 0, HALF, HALF);
+            let oval = null;
+            try { oval = traceBezel(hg.getImageData(0, 0, HALF, HALF), { cx: cx / 2, cy: cy / 2, r: found.r * (S / LOOK) / 2 }); } catch (e) { oval = null; }
+            let face;
+            if (oval) {
+              const c = document.createElement('canvas'); c.width = ow; c.height = oh;
+              const g = c.getContext('2d');
+              if (!cutout) { g.fillStyle = '#000'; g.fillRect(0, 0, ow, oh); }
+              const rho = (ow / 2) / 1.05;                                  // bezel fills the face with a 5% margin
+              g.translate(ow / 2, oh / 2); g.rotate(oval.angle); g.scale(rho / (oval.a * 2), rho / (oval.b * 2)); g.rotate(-oval.angle);
+              g.translate(-oval.cx * 2, -oval.cy * 2);
+              g.drawImage(shot, 0, 0);
+              face = c;
+            } else face = cropFrom(cx - r, cy - r, 2 * r);
+            main = { blob: await toBlob(face, type), shape: cur, how: 'snap' };
             alt = mine;
           } else if (auto) {
             // Taken automatically but the dial can't be confirmed in this very frame: don't save a bad crop, keep waiting.

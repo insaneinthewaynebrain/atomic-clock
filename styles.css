@@ -1324,3 +1324,17 @@ dialog.cam.side .cam-toggles { flex-direction: column; }
 .cam-autogo { width: min(260px, 70vw); height: 4px; border-radius: 99px; background: rgba(255,255,255,.15); overflow: hidden; }
 .cam-autogo i { display: block; height: 100%; background: #7dffc8; transform-origin: left; animation: autogo linear forwards; }
 @keyframes autogo { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* "Which watch is it?" — three quick steps */
+.id-step { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); }
+.scan-summary + .id-step { border-top: 0; }
+.id-num { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 15px; background: var(--accent); color: var(--accent-ink); }
+.id-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.id-title { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 30px; }
+.id-seg { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.id-hint { margin: 0; }
+.id-year { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.id-notsure { padding: 10px 16px; }
+.chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.id-body .guess-row { margin-top: 0; }
+.id-seg { margin: 0; }

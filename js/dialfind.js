@@ -139,3 +139,91 @@ function gradients(img) {
   const T = Math.max(24, mag[Math.floor(mag.length * 0.72)]);
   return { gx, gy, T };
 }
+
+/* ---------- Precise fit at the moment the photo is taken ---------- */
+
+/**
+ * Traces the bezel's real edge round a rough find and fits an oval to it (a watch seen slightly at an angle is
+ * an oval, and the rough circle sits off its centre). `img` is a bigger copy of the same picture (e.g. 480 px)
+ * and `rough` is the rough find scaled to it.
+ * @returns {{cx:number, cy:number, a:number, b:number, angle:number} | null}  oval centre, half-axes (a ≥ b)
+ *   and the direction of the long axis (radians); null if the edge can't be traced reliably
+ */
+export function traceBezel(img, rough) {
+  const W = img.width, H = img.height;
+  const { gx, gy, T } = gradients(img);
+  const R = 128, pts = [];
+  for (let i = 0; i < R; i++) {
+    const t = (i / R) * 2 * Math.PI, c = Math.cos(t), s = Math.sin(t);
+    // Walk out along the ray (wide enough for the short side of a tilted watch). Take the *outermost* clear edge,
+    // not the strongest: the bezel's outer edge, rather than the insert/dial boundary inside it.
+    const prof = [];
+    for (let r = rough.r * 0.68; r <= rough.r * 1.25; r += 0.5) {
+      const x = Math.round(rough.cx + c * r), y = Math.round(rough.cy + s * r);
+      if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) { prof.push([r, 0]); continue; }
+      const k = y * W + x;
+      prof.push([r, Math.abs(gx[k] * c + gy[k] * s)]);
+    }
+    const peak = Math.max(...prof.map((q) => q[1]));
+    let at = null;
+    if (peak > T) {
+      for (let j = prof.length - 2; j >= 1; j--) {
+        const v = prof[j][1];
+        if (v >= peak * 0.5 && v >= prof[j - 1][1] && v >= prof[j + 1][1]) { at = [rough.cx + c * prof[j][0], rough.cy + s * prof[j][0]]; break; }
+      }
+    }
+    if (at) pts.push(at);
+  }
+  if (pts.length < R * 0.6) return null;
+  // Fit, drop the points that disagree most (lugs, crown, reflections), fit again.
+  let use = pts, fit = null;
+  for (let pass = 0; pass < 3; pass++) {
+    fit = fitEllipse(use);
+    if (!fit) return null;
+    const res = use.map((p) => Math.abs(ellipseDist(fit, p)));
+    const cut = [...res].sort((x, y) => x - y)[Math.floor(res.length * 0.75)] * 1.5 + 0.5;
+    const next = use.filter((p, i) => res[i] <= cut);
+    if (next.length < R * 0.45) break;
+    use = next;
+  }
+  if (!fit || fit.b / fit.a < 0.65 || fit.a > rough.r * 1.3 || fit.b < rough.r * 0.62) return null;
+  if (Math.hypot(fit.cx - rough.cx, fit.cy - rough.cy) > rough.r * 0.25) return null;
+  return fit;
+}
+
+/** Least-squares conic fit (A x² + B xy + C y² + D x + E y = 1, centred for stability) → oval parameters. */
+function fitEllipse(pts) {
+  const mx = pts.reduce((s, p) => s + p[0], 0) / pts.length, my = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+  const M = Array.from({ length: 5 }, () => new Float64Array(6));
+  for (const [px, py] of pts) {
+    const x = px - mx, y = py - my, row = [x * x, x * y, y * y, x, y];
+    for (let i = 0; i < 5; i++) { for (let j = 0; j < 5; j++) M[i][j] += row[i] * row[j]; M[i][5] += row[i]; }
+  }
+  // Solve the 5×5 normal equations (Gaussian elimination with pivoting).
+  for (let c = 0; c < 5; c++) {
+    let p = c; for (let r = c + 1; r < 5; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    if (Math.abs(M[c][c]) < 1e-12) return null;
+    for (let r = 0; r < 5; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k < 6; k++) M[r][k] -= f * M[c][k]; }
+  }
+  const [A, B, C, D, E] = M.map((r, i) => r[5] / r[i]);
+  const den = 4 * A * C - B * B;
+  if (den <= 0) return null;                                   // not an ellipse
+  const x0 = (B * E - 2 * C * D) / den, y0 = (B * D - 2 * A * E) / den;
+  const F = 1 + A * x0 * x0 + B * x0 * y0 + C * y0 * y0;       // value at the centre, moved to the right-hand side
+  const angle = 0.5 * Math.atan2(B, A - C);
+  const cs = Math.cos(angle), sn = Math.sin(angle);
+  const Ap = A * cs * cs + B * cs * sn + C * sn * sn, Cp = A * sn * sn - B * cs * sn + C * cs * cs;
+  if (Ap <= 0 || Cp <= 0 || F <= 0) return null;
+  let a = Math.sqrt(F / Ap), b = Math.sqrt(F / Cp), ang = angle;
+  if (b > a) { [a, b] = [b, a]; ang += Math.PI / 2; }
+  return { cx: x0 + mx, cy: y0 + my, a, b, angle: ang };
+}
+
+/** Roughly how far a point is from the oval's edge (in pixels; negative = inside). */
+function ellipseDist(e, [px, py]) {
+  const c = Math.cos(e.angle), s = Math.sin(e.angle), dx = px - e.cx, dy = py - e.cy;
+  const u = dx * c + dy * s, v = -dx * s + dy * c;
+  const rho = Math.hypot(u / e.a, v / e.b);
+  return (rho - 1) * Math.hypot(u, v) / Math.max(rho, 1e-6);
+}

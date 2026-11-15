@@ -64,37 +64,56 @@ function identify(ctx) {
     brandSel.value = b; brandNew.hidden = true;
     if (brandTag) brandTag.hidden = b !== sf.brand;
   };
-  const chips = guessed && scan.guesses.length > 1
-    ? el('div', { class: 'guess-row' }, el('span', { class: 'muted small' }, `Read “${scan.guesses[0].from}” — could be:`),
-      scan.guesses.map((g) => el('button', { type: 'button', class: 'chip', onclick: () => pickBrand(g.brand) }, g.brand)))
+  const others = guessed ? scan.guesses.filter((g) => g.brand !== startBrand).slice(0, 3) : [];
+  const chips = others.length
+    ? el('div', { class: 'guess-row' }, el('span', { class: 'muted small' }, 'Or could be:'),
+      others.map((g) => el('button', { type: 'button', class: 'chip', onclick: () => pickBrand(g.brand) }, g.brand)))
     : null;
 
-  const refIn = el('input', { class: 'input', type: 'text', value: a.reference || '', placeholder: 'e.g. SKX007, 126610LN', autocapitalize: 'characters', spellcheck: false });
-  const refUnknown = el('input', { type: 'checkbox', class: 'check', checked: !!a.refUnknown });
-  const nameIn = el('input', { class: 'input', type: 'text', value: a.name ?? (sf.model || ''), placeholder: 'e.g. Submariner, “Dad’s Seiko”', autocapitalize: 'words' });
-  const yearSel = el('select', { class: 'input' }, el('option', { value: '' }, 'Choose a year…'), el('option', { value: 'unknown', selected: a.year === 'unknown' }, 'I don’t know'),
+  // ② Model: by reference (best for finding details) or by a name — one box, switched by a two-way choice.
+  let mode = a.refUnknown || (!a.reference && a.name) ? 'name' : 'ref';
+  const refIn = el('input', { class: 'input', type: 'text', value: a.reference || '', placeholder: 'e.g. SKX007, 126610LN', autocapitalize: 'characters', spellcheck: false, 'aria-label': 'Model reference' });
+  const nameIn = el('input', { class: 'input', type: 'text', value: a.name ?? (sf.model || ''), placeholder: 'e.g. Submariner, “Dad’s Seiko”', autocapitalize: 'words', 'aria-label': 'Name' });
+  const modelHint = el('p', { class: 'muted small id-hint' });
+  const modeBtns = [['ref', 'Reference'], ['name', 'Name']].map(([v, lab]) => {
+    const b = el('button', { type: 'button', class: 'seg-btn', onclick: () => { mode = v; syncMode(); (v === 'ref' ? refIn : nameIn).focus(); } }, lab);
+    b.dataset.v = v; return b;
+  });
+  function syncMode() {
+    modeBtns.forEach((b) => b.classList.toggle('active', b.dataset.v === mode));
+    refIn.hidden = mode !== 'ref'; nameIn.hidden = mode !== 'name';
+    modelHint.textContent = mode === 'ref'
+      ? 'Best for finding the details. It’s on the case back, the papers or warranty card, or between the lugs.'
+      : 'No reference, or don’t know it? Give the watch a name instead.';
+  }
+  syncMode();
+
+  // ③ Year made — or "Not sure".
+  const yearSel = el('select', { class: 'input', 'aria-label': 'Year made' }, el('option', { value: '' }, 'Choose a year…'),
     Array.from({ length: new Date().getFullYear() - 1899 }, (_, i) => new Date().getFullYear() - i).map((y) => el('option', { value: String(y), selected: String(a.year) === String(y) }, y)));
-  const syncRef = () => { refIn.disabled = refUnknown.checked; if (refUnknown.checked) refIn.value = ''; };
-  refUnknown.addEventListener('change', syncRef); syncRef();
+  let notSure = a.year === 'unknown';
+  const notSureBtn = el('button', { type: 'button', class: 'chip id-notsure', onclick: () => { notSure = !notSure; syncYear(); } }, 'Not sure');
+  function syncYear() { notSureBtn.classList.toggle('on', notSure); yearSel.disabled = notSure; if (notSure) yearSel.value = ''; }
+  yearSel.addEventListener('change', () => { if (yearSel.value) { notSure = false; syncYear(); } });
+  syncYear();
 
   const read = () => ({
     brand: brandSel.value === '__add' ? brandNew.value.trim() : brandSel.value,
-    reference: refIn.value.trim(), refUnknown: refUnknown.checked, name: nameIn.value.trim(), year: yearSel.value,
+    reference: mode === 'ref' ? refIn.value.trim() : '', refUnknown: mode === 'name',
+    name: mode === 'name' ? nameIn.value.trim() : '', year: notSure ? 'unknown' : yearSel.value,
   });
 
+  const step = (n, title, ...body) => el('section', { class: 'id-step' }, el('div', { class: 'id-num' }, n),
+    el('div', { class: 'id-body' }, el('div', { class: 'id-title' }, title), ...body));
   const content = [];
   if (scan?.found?.length) {
     content.push(el('div', { class: 'scan-summary' }, el('span', { class: 'tag-read' }, 'From the dial'),
       ' ', scan.found.map(([k, v]) => `${v}`).join(' · ')));
   }
   content.push(
-    el('label', { class: 'field' }, el('span', {}, 'Brand ', brandTag), brandSel, brandNew), chips,
-    el('label', { class: 'field' }, el('span', {}, 'Model reference'), refIn),
-    el('label', { class: 'field check-field' }, refUnknown, el('span', {}, 'I don’t know the reference')),
-    el('p', { class: 'muted small' }, 'The reference is the best way to find the details. It’s usually on the case back, the papers or the warranty card, or engraved between the lugs.'),
-    el('label', { class: 'field' }, el('span', {}, 'Name (if there’s no reference, or you’d like your own)'), nameIn),
-    el('label', { class: 'field' }, el('span', {}, 'Year made'), yearSel),
-    el('p', { class: 'muted small' }, 'The year helps tell apart versions of the same reference that changed over time.'));
+    step('1', ['Brand ', brandTag], brandSel, brandNew, chips),
+    step('2', 'Model', el('div', { class: 'seg id-seg' }, modeBtns), refIn, nameIn, modelHint),
+    step('3', 'Year made', el('div', { class: 'id-year' }, yearSel, notSureBtn)));
 
   openModal({
     title: 'Which watch is it?', className: 'tall', content,
