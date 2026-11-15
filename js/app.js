@@ -2,6 +2,7 @@
 import * as store from './store.js';
 import { startSync } from './time.js';
 import { initClock, showClock, hideClock } from './clock.js';
+import { initCountdown } from './countdown.js';
 import { initTracker } from './tracker.js';
 import { initWorld, showWorld, hideWorld } from './world.js';
 import { initWeather, showWeather } from './weather.js';
@@ -16,7 +17,7 @@ import * as setting from './setting.js';
 import * as insurance from './insurance.js';
 import * as timegrapher from './timegrapher.js';
 
-export const APP_VERSION = '11';
+export const APP_VERSION = '12';
 
 // Feature modules that register their own tabs/tools.
 const EXTRA_MODULES = [wrist, setting, insurance, timegrapher];
@@ -77,6 +78,7 @@ async function init() {
 
   const api = { registerTab, registerTool, switchTab };
   for (const m of EXTRA_MODULES) m.register(api);
+  initCountdown();
 
   startSync();
   const route = () => {

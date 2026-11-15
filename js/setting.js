@@ -1,6 +1,6 @@
 // Tools: "Set to the minute" countdown with beeps, date-change danger zone, moon phase, GMT helper.
 import * as store from './store.js';
-import { now, clock } from './time.js';
+import { now } from './time.js';
 import { el, pad } from './ui.js';
 import { partsIn } from './world.js';
 
@@ -36,90 +36,13 @@ function updateClockZone() {
   n.textContent = z ? '⚠️ 21:00–03:00: don’t change the date now' : '';
 }
 
-/* =========================================================
-   Set to the minute
-   ========================================================= */
-let raf = null, audio = null, beepsOn = false, lastBeep = 0, wake = null;
-
-function beep(atAudioTime, freq, dur) {
-  const o = audio.createOscillator(), g = audio.createGain();
-  o.type = 'sine'; o.frequency.value = freq;
-  g.gain.setValueAtTime(0.0001, atAudioTime);
-  g.gain.exponentialRampToValueAtTime(0.6, atAudioTime + 0.005);
-  g.gain.exponentialRampToValueAtTime(0.0001, atAudioTime + dur);
-  o.connect(g).connect(audio.destination);
-  o.start(atAudioTime); o.stop(atAudioTime + dur + 0.02);
-}
-
-function toggleBeeps(btn) {
-  try {
-    if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
-    audio.resume();
-    beepsOn = !beepsOn;
-    if (beepsOn) beep(audio.currentTime + 0.02, 880, 0.05);   // confirms sound works
-  } catch (e) { beepsOn = false; }
-  btn.textContent = beepsOn ? '🔊 Beeps on' : '🔈 Beeps off';
-  btn.classList.toggle('primary', beepsOn);
-}
-
-function setFrame() {
-  const t = now();
-  const next = Math.floor(t / 60000) * 60000 + 60000;
-  const left = (next - t) / 1000;
-  const big = $('set-left');
-  if (!big) return;
-  big.textContent = left >= 59.95 ? '0.0' : left.toFixed(1);
-  big.className = 'set-left' + (left <= 5 ? ' final' : '') + (left >= 59.4 ? ' go' : '');
-  const d = new Date(next);
-  $('set-target').textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
-  const ring = $('set-ring');
-  if (ring) ring.style.strokeDashoffset = String(((60 - left) / 60) * 653.5);
-  // Schedule beeps precisely with the audio clock, a little ahead of time.
-  if (beepsOn && audio) {
-    for (const s of [5, 4, 3, 2, 1, 0]) {
-      const at = next - s * 1000;
-      const ms = at - t;
-      if (ms > 0 && ms < 120 && lastBeep !== at) {
-        lastBeep = at;
-        beep(audio.currentTime + ms / 1000, s === 0 ? 1320 : 880, s === 0 ? 0.45 : 0.08);
-      }
-    }
-  }
-  raf = requestAnimationFrame(setFrame);
-}
-
-function renderSetting() {
+function renderZone() {
   const box = $('tool-setting-body');
   box.innerHTML = '';
-  const beepBtn = el('button', { type: 'button', class: 'btn wide' + (beepsOn ? ' primary' : '') }, beepsOn ? '🔊 Beeps on' : '🔈 Beeps off');
-  beepBtn.onclick = () => toggleBeeps(beepBtn);
-  box.append(
-    el('div', { class: 'card set-card' },
-      el('div', { class: 'set-ring-wrap' },
-        el('div', { class: 'set-ring', html: '<svg viewBox="0 0 220 220" aria-hidden="true"><circle cx="110" cy="110" r="104" class="ring-bg"/><circle id="set-ring" cx="110" cy="110" r="104" class="ring-fg" transform="rotate(-90 110 110)"/></svg>' }),
-        el('div', { class: 'set-center' },
-          el('div', { class: 'muted small' }, 'Seconds to'),
-          el('div', { id: 'set-target', class: 'set-target' }, '--:--:00'),
-          el('div', { id: 'set-left', class: 'set-left' }, '--'))),
-      beepBtn,
-      el('p', { class: 'muted small' }, 'Beeps on the last 5 seconds and a long beep exactly on the minute. On iPhone, the silent switch must be off for sound.'),
-      el('p', { class: 'muted small sync-note' }, clock.synced ? `Network-synced, accurate to about ±${clock.accuracy} ms.` : 'Not synced yet — using the phone’s clock.')),
-    el('div', { class: 'card' },
-      el('h2', { class: 'card-title' }, 'How to set a watch to the second'),
-      el('ol', { class: 'steps small' },
-        el('li', {}, 'Pull the crown out to the time-setting position. Most mechanical watches “hack”: the seconds hand stops.'),
-        el('li', {}, 'Stop the seconds hand at 12, then set the minute hand exactly on the minute shown above.'),
-        el('li', {}, 'Push the crown in on the long beep (when the countdown hits zero).'),
-        el('li', {}, 'Watch doesn’t hack? Wait until its seconds hand passes 12 at the same moment as the beep, then set the minute hand.'))),
-    dateZoneBox(true));
-  cancelAnimationFrame(raf);
-  raf = requestAnimationFrame(setFrame);
-  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { wake = w; }).catch(() => {});
-}
-
-function hideSetting() {
-  cancelAnimationFrame(raf); raf = null;
-  if (wake) { wake.release().catch(() => {}); wake = null; }
+  box.append(dateZoneBox(true), el('div', { class: 'card' },
+    el('h2', { class: 'card-title' }, 'Why it matters'),
+    el('p', { class: 'small' }, 'Between about 21:00 and 03:00 the date wheel is being moved by the movement. Using the quick-set date then can strain or break the date mechanism on many watches. Move the hands past 03:00 first, set the date, then set the time.'),
+    el('p', { class: 'muted small' }, 'The Clock tab also warns you during these hours. Always check your watch’s manual.')));
 }
 
 /* =========================================================
@@ -252,7 +175,7 @@ function renderGmt() {
 
 /* ========================================================= */
 export function register({ registerTool }) {
-  registerTool({ id: 'setting', title: 'Set to the minute', icon: '⏱️', desc: 'Countdown + beeps, date safety', panel: 'setting', show: renderSetting, hide: hideSetting, order: 10 });
+  registerTool({ id: 'datezone', title: 'Date change safety', icon: '📅', desc: 'When it’s safe to change the date', panel: 'setting', show: renderZone, order: 10 });
   registerTool({ id: 'moon', title: 'Moon phase', icon: '🌔', desc: 'Set your moonphase', panel: 'moon', show: renderMoon, order: 20 });
   registerTool({ id: 'gmt', title: 'GMT helper', icon: '🌐', desc: 'Where the GMT hand points', panel: 'gmt', show: renderGmt, hide: () => clearInterval(gmtTimer), order: 30 });
   // Danger-zone warning on the Clock tab (only shown 21:00–03:00).

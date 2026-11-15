@@ -1,6 +1,7 @@
 // Clock tab: big synced time display, sync status line, wake lock.
 import { clock, now, sync, onSyncChange, isFresh } from './time.js';
 import { pad, fmtAgo, toast } from './ui.js';
+import { tickCountdown, initCountdown } from './countdown.js';
 
 const $ = (id) => document.getElementById(id);
 let rafId = null;
@@ -18,6 +19,7 @@ function frame() {
   $('clk-ms').textContent = ms;
   const dateKey = d.toDateString();
   if (dateKey !== lastDateKey) { lastDateKey = dateKey; renderDate(d); }
+  tickCountdown();
   rafId = requestAnimationFrame(frame);
 }
 
