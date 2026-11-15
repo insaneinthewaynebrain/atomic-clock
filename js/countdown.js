@@ -1,9 +1,8 @@
 // Minute countdown on the Clock tab: a ring counting down to the next minute that glows
 // green → amber → red with ripples in the last seconds, plus optional radio-style time pips
 // (5 short + 1 long exactly on the minute).
-import * as store from './store.js';
 import { now } from './time.js';
-import { el, pad, toast } from './ui.js';
+import { el, pad } from './ui.js';
 
 // A tiny silent WAV: playing it from a tap switches older iPhones into "media" audio mode.
 const SILENT_WAV = 'data:audio/wav;base64,UklGRmQGAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YUAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -12,8 +11,8 @@ let audio = null, silentEl = null, unlocked = false;
 let lastScheduled = 0, lastWhole = null, lastSec = '', lastTarget = '';
 const CIRC = 2 * Math.PI * 108;
 const $ = (id) => document.getElementById(id);
-// Lights always run; this only switches the beeps. ('lights' from older versions = beeps off.)
-const mode = () => (store.get().countdown === 'beeps' ? 'beeps' : 'off');
+// Beeps are always on.
+const mode = () => 'beeps';
 
 /* ---------- Sound ---------- */
 // Must run inside a tap. Makes Web Audio play even with the iPhone's silent switch on.
@@ -122,42 +121,23 @@ export function tickCountdown() {
   }
 }
 
-/* ---------- Controls ---------- */
+/* ---------- Sound start-up ---------- */
+// iPhone only allows sound after the screen has been touched once since the app opened,
+// so the first touch anywhere (tap or scroll) switches the beeps on silently.
 function updateHint() {
   const h = $('cd-hint');
-  if (!h) return;
-  const need = mode() === 'beeps' && !soundReady();
-  h.hidden = !need;
-  h.textContent = need ? 'Tap here to turn the sound on' : '';
+  if (h) h.hidden = soundReady();
 }
 
-function setMode(v) {
-  store.get().countdown = v;
-  store.save();
-  if (v === 'beeps') {
-    unlockAudio();
-    // A test pip so you know sound is working.
-    setTimeout(() => { if (soundReady()) pip(audio.currentTime + 0.05, false); else toast('Sound is blocked — check the volume'); }, 120);
-  }
-  drawControls();
-}
-
-function drawControls() {
-  const seg = $('cd-seg');
-  if (!seg) return;
-  seg.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === mode()));
-  updateHint();
+function onFirstTouch() {
+  if (soundReady()) return;
+  unlockAudio();
+  setTimeout(updateHint, 150);
 }
 
 export function initCountdown() {
   const slot = $('countdown-slot');
   if (!slot || $('cd-ring')) return;
-  const seg = el('div', { id: 'cd-seg', class: 'seg cd-seg', role: 'group', 'aria-label': 'Countdown beeps' },
-    [['off', '🔇 Beeps off'], ['beeps', '🔊 Beeps on']].map(([v, l]) => {
-      const b = el('button', { type: 'button', class: 'seg-btn', onclick: () => setMode(v) }, l);
-      b.dataset.v = v;
-      return b;
-    }));
   slot.append(
     el('div', { id: 'countdown', class: 'countdown' },
       el('div', { class: 'cd-next' }, 'Next minute ', el('b', { id: 'cd-target' }, '--:--:00')),
@@ -169,20 +149,22 @@ export function initCountdown() {
           el('div', { class: 'cd-left' }, el('span', { id: 'cd-sec' }, '--'), el('span', { id: 'cd-ms', class: 'cd-ms' }, '.---')),
           el('div', { class: 'cd-unit' }, 'seconds to go')))),
     el('div', { class: 'cd-controls' },
-      seg,
-      el('button', { type: 'button', id: 'cd-hint', class: 'cd-hint', hidden: true, onclick: unlockAudio }),
+      el('div', { id: 'cd-hint', class: 'cd-hint' }, '🔈 Beeps start after your first touch of the screen'),
       el('details', { class: 'cd-help' },
         el('summary', {}, 'How to set a watch to the second'),
         el('ol', { class: 'steps small' },
           el('li', {}, 'Pull the crown out to the time-setting position. Most mechanical watches “hack”: the seconds hand stops. Stop it at 12.'),
           el('li', {}, 'Set the minute hand exactly on the “Next minute” shown above the ring.'),
-          el('li', {}, 'As the ring turns amber and red, get ready — push the crown in the moment it reaches zero (the long pip if beeps are on).'),
+          el('li', {}, 'As the ring turns amber and red, get ready — push the crown in the moment it reaches zero, on the long pip.'),
           el('li', {}, 'Watch doesn’t hack? Wait until its seconds hand passes 12 as the ring hits zero, then set the minute hand.')),
         el('p', { class: 'muted small' }, 'Beeps: five short pips, then a long pip exactly on the minute. They play even with the silent switch on (iOS 16.4 or later); turn the volume up.'))));
-  drawControls();
-  // iPhone needs a tap before sound can start, e.g. after reopening the app.
-  document.addEventListener('pointerdown', () => { if (mode() === 'beeps' && !soundReady()) unlockAudio(); }, true);
+  // Try straight away (works where the browser allows it), then on the first touch of any kind.
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* older iOS */ }
+  try { audio = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); audio.resume().then(updateHint).catch(() => {}); } catch (e) { audio = null; }
+  for (const ev of ['pointerdown', 'touchend', 'click', 'keydown']) document.addEventListener(ev, onFirstTouch, true);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && audio) audio.resume().catch(() => {}).finally(updateHint);
   });
+  if (audio) audio.onstatechange = updateHint;
+  updateHint();
 }
