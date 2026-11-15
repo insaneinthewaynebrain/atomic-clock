@@ -112,11 +112,13 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       controls = el('div', { class: 'cam-controls' },
         zoomV,
         el('div', { class: 'cam-bottom' },
-          el('button', { type: 'button', class: 'btn sm', onclick: () => finish(null) }, 'Cancel'),
+          el('span', { class: 'cam-spacer' }),
           shutter,
           el('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, 'Library')),
         allowSkip ? el('button', { type: 'button', class: 'link-btn cam-skip', onclick: () => finish({ skip: true }) }, 'Add without a photo') : null));
-    dlg.append(stage, bar, fileIn, shotIn);
+    // Cancel lives in the top-left corner, where people expect it.
+    const cancelBtn = el('button', { type: 'button', class: 'cam-cancel', 'aria-label': 'Cancel', onclick: () => finish(null) }, el('span', { 'aria-hidden': 'true' }, '✕'), ' Cancel');
+    dlg.append(stage, bar, cancelBtn, fileIn, shotIn);
     document.body.append(dlg);
     dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
     dlg.showModal();

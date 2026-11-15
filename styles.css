@@ -1278,3 +1278,13 @@ dialog.cam.side .cam-skip { margin: 0; font-size: 12px; text-align: center; }
 .cam-zoomv { gap: 20px; }
 .zv-val { margin-top: -8px; }
 dialog.cam:not(.side) .cam-hint { left: 64px; right: 64px; }
+
+.cam-cancel { position: absolute; z-index: 2; top: calc(var(--safe-top) + 10px); left: calc(var(--safe-left) + 12px); display: flex; align-items: center; gap: 6px;
+  border: 0; border-radius: 99px; padding: 9px 14px; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; font-weight: 700; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
+.cam-cancel span { font-size: 13px; }
+dialog.cam.scanning .cam-cancel { opacity: .25; pointer-events: none; }
+.cam-spacer { display: block; }
+dialog.cam.side .cam-spacer { display: none; }
+dialog.cam:not(.side) .cam-title { min-height: 38px; display: flex; align-items: center; }
+@media (max-width: 360px) { dialog.cam:not(.side) .cam-title { padding-left: 70px; font-size: 15px; } }
+dialog.cam.side.lefty .cam-cancel { left: auto; right: calc(var(--safe-right) + 12px); }
