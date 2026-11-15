@@ -1415,3 +1415,4 @@ svg.world .pin { fill: #fbbf24; stroke: #000; stroke-width: .4; }
 @keyframes arpulse2 { 50% { transform: translateX(-50%) scale(1.05); } }
 .once-hint { margin: 2px 0 0; }
 .field .seg { margin: 4px 0 8px; }
+.ar-sound { position: absolute; bottom: calc(var(--safe-bottom) + 14px); left: 0; right: 0; text-align: center; font-size: 13px; opacity: .65; }

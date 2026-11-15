@@ -5,11 +5,12 @@ import { el, pad, toast } from './ui.js';
 import { getAudio, unlockAudio, playBackup, stopBackup } from './countdown.js';
 import { playTone, RAMP, normTone, TONES } from './music.js';
 import { messagesFor, speak, stopSpeaking } from './wakewords.js';
+import * as alarmSound from './alarmsound.js';
 
 const GIVE_UP_MS = 10 * 60 * 1000;
 const $ = (id) => document.getElementById(id);
 let cur = null, queue = [], timer = null, player = null, wake = null, started = 0;
-let msgs = [], nextMsgAt = 0, speaking = false, backupOn = false;
+let msgs = [], nextMsgAt = 0, speaking = false, backupOn = false, mode = 'trying';
 const MSG_EVERY = 18000;   // a new wake-up message about every 18 seconds
 
 /**
@@ -23,8 +24,14 @@ export function ringAlert(opts) {
   cur = opts;
   started = Date.now();
   const overlay = el('div', { id: 'alarm-ring', class: 'alarm-ring' + (opts.sunlit ? ' sunlit' : ''), role: 'alertdialog', 'aria-label': opts.title || 'Alarm',
-    onpointerdown: () => { unlockAudio(); setTimeout(beat, 150); } },
+    onpointerdown: () => {
+      unlockAudio();
+      // A tap always allows sound: start the recorded tone directly if it isn't already playing.
+      if (cur && mode !== 'element') alarmSound.start(toneOf(cur), 1).then((ok) => { if (ok && cur) { player?.stop(); player = null; stopBackup(); backupOn = false; mode = 'element'; } });
+      setTimeout(beat, 150);
+    } },
     el('div', { class: 'ar-mute', id: 'ar-mute', hidden: true }, '🔇 Tap anywhere to turn the sound on'),
+    el('div', { class: 'ar-sound', id: 'ar-sound' }, 'Sound: starting…'),
     el('div', { class: 'ar-icon' }, opts.icon || '⏰'),
     el('div', { class: 'ar-time', id: 'ar-time' }, ''),
     el('div', { class: 'ar-label' }, opts.title || 'Alarm'),
@@ -35,12 +42,22 @@ export function ringAlert(opts) {
   document.body.append(overlay);
   if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { wake = w; }).catch(() => {});
   if (navigator.vibrate) try { navigator.vibrate([400, 200, 400]); } catch (e) { /* not supported */ }
+  // First choice: the recorded tone through ordinary audio playback (dependable on iPhone/iPad).
+  mode = 'trying';
+  const mine = opts, toneName = toneOf(opts);
+  alarmSound.start(toneName, RAMP[toneName][0]).then((ok) => {
+    if (cur !== mine) { if (ok) alarmSound.stop(); return; }
+    mode = ok ? 'element' : 'webaudio';
+    beat();
+  });
   msgs = opts.words && opts.words !== 'off' ? messagesFor(opts.sound) : [];
   nextMsgAt = Date.now() + 2500;
   speaking = false;
   beat();
   timer = setInterval(beat, 1000);
 }
+
+const toneOf = (o) => (o.sound === 'chime' ? 'chime' : normTone(o.sound));
 
 function nextMessage() {
   const box = $('ar-msg');
@@ -65,7 +82,7 @@ function beat() {
   if (!cur) return;
   const t = $('ar-time');
   if (t) { const x = new Date(now()); t.textContent = `${pad(x.getHours())}:${pad(x.getMinutes())}`; }
-  const tone = cur.sound === 'chime' ? 'chime' : normTone(cur.sound);
+  const tone = toneOf(cur);
   const [v0, v1, secs] = RAMP[tone];
   const vol = Math.min(v1, v0 + ((Date.now() - started) / 1000 / secs) * (v1 - v0));
   if (msgs.length && Date.now() >= nextMsgAt) { nextMsgAt = Date.now() + MSG_EVERY; nextMessage(); }
@@ -77,7 +94,15 @@ function beat() {
     speak({ text: cur.say }, 'medium').then(() => { if (cur === mine) speaking = false; });
   }
   const v = speaking ? vol * 0.18 : vol;           // music dips while the voice talks
-  if (!player) {
+  const status = $('ar-sound');
+  if (mode === 'element') {
+    alarmSound.setVolume(v);
+    if (!alarmSound.playing()) alarmSound.start(tone, v).then((ok) => { if (!ok && cur) mode = 'webaudio'; });
+    if (status) status.textContent = '🔊 Sound on';
+    const mm = $('ar-mute'); if (mm) mm.hidden = true;
+  } else if (mode === 'trying') {
+    // waiting for the recorded tone to start
+  } else if (!player) {
     const ctx = getAudio();
     if (ctx) { player = playTone(ctx, tone, v); if (backupOn) { stopBackup(); backupOn = false; } }
     else if (!backupOn && Date.now() - started > 1500) {
@@ -87,6 +112,7 @@ function beat() {
     }
   } else player.setVolume(v);
   const m = $('ar-mute'); if (m && player) m.hidden = true;
+  if (status && mode !== 'element') status.textContent = player ? '🔊 Sound on (live)' : backupOn ? '🔊 Sound on (backup chime)' : mode === 'trying' ? 'Sound: starting…' : '🔇 Sound blocked — tap the screen';
   if (Date.now() - started > GIVE_UP_MS) { const f = cur.onTimeout; finish(f); }
 }
 
@@ -94,6 +120,7 @@ function finish(fn) {
   clearInterval(timer); timer = null;
   player?.stop(); player = null;
   stopBackup(); backupOn = false;
+  alarmSound.stop(); mode = 'trying';
   stopSpeaking(); msgs = []; speaking = false;
   $('alarm-ring')?.remove();
   if (wake) { wake.release().catch(() => {}); wake = null; }
@@ -107,6 +134,7 @@ let prev = null, prevTimer = null, prevBtn = null;
 export function stopPreview() {
   clearTimeout(prevTimer);
   prev?.stop(); prev = null;
+  if (!cur) alarmSound.stop();
   if (prevBtn) { prevBtn.textContent = '▶ Play'; prevBtn = null; }
 }
 
@@ -116,6 +144,16 @@ export function previewTone(tone, btn) {
   stopPreview();
   if (same) return;
   unlockAudio();
+  const t0 = normTone(tone);
+  if (alarmSound.ready(t0)) {
+    // Same recorded sound the alarm will use, so the preview is a true test.
+    alarmSound.start(t0, 0.8).then((ok) => { if (!ok) toast('Sound is blocked — turn the volume up and tap again'); });
+    prev = { stop: () => alarmSound.stop() };
+    prevBtn = btn || null;
+    if (btn) btn.textContent = '■ Stop';
+    prevTimer = setTimeout(stopPreview, 12000);
+    return;
+  }
   setTimeout(() => {
     const ctx = getAudio();
     if (!ctx) { toast('Sound is blocked — turn the volume up and tap again'); return; }

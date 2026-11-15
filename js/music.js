@@ -260,3 +260,39 @@ export function playTone(ctx, tone, volume = 0.6) {
     },
   };
 }
+
+/* ---------- Recorded copies for iPhone / iPad ----------
+ iOS can leave live Web Audio silent after the app has been interrupted (it still says "running").
+ Ordinary audio playback is far more dependable there, so each tone is recorded once, on the phone,
+ into a short seamless loop (a WAV file in memory) that the alarm plays on repeat. */
+const TEMPO = { soft: [60, 2], medium: [116, 4], harsh: [160, 4], chime: [60, 2] };
+const LOOP = { soft: [64, 0, 0.7], medium: [128, 64, 0.85], harsh: [128, 0, 0.95], chime: [16, 0, 0.8] };   // steps, first step, peak level
+
+export async function renderTone(tone, rate = 22050) {
+  const [steps, from, peak] = LOOP[tone];
+  const [bpm, div] = TEMPO[tone];
+  const sd = 60 / bpm / div, secs = steps * sd;
+  const ctx = new OfflineAudioContext(1, Math.ceil(secs * rate), rate);
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.005; comp.release.value = 0.2;
+  const bus = ctx.createGain();
+  bus.connect(comp).connect(ctx.destination);
+  const S = STYLES[tone](ctx, bus);
+  for (let i = 0; i < steps; i++) S.step(from + i, 0.01 + i * sd, sd);
+  const buf = await ctx.startRendering();
+  const d = buf.getChannelData(0);
+  let pk = 0; for (let i = 0; i < d.length; i++) pk = Math.max(pk, Math.abs(d[i]));
+  const k = pk > 0 ? peak / pk : 1;                      // every tone comes out clearly audible
+  const fade = Math.floor(rate * 0.01);                   // tiny fades so the loop point doesn't click
+  const n = d.length, wav = new ArrayBuffer(44 + n * 2), v = new DataView(wav);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const g = Math.min(1, i / fade, (n - 1 - i) / fade);
+    v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, d[i] * k * g)) * 32767, true);
+  }
+  return URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
+}
