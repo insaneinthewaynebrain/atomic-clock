@@ -8,7 +8,7 @@ import { initWeather, showWeather } from './weather.js';
 import { initCurrency, showCurrency } from './currency.js';
 import { initCollection, showCollection, hideCollection, bannerHooks } from './collection.js';
 import { initTools, showTools, hideTools, registerTool } from './tools.js';
-import { openTool } from './tools.js';
+import { openTool, goHome } from './tools.js';
 import { backupBanner } from './backup.js';
 import { APP_NAME } from './config.js';
 
@@ -33,7 +33,7 @@ export function registerTab(name, def) {
 
 export function switchTab(name, sub) {
   if (!TABS[name]) return;
-  if (name === currentTab) { if (sub && name === 'tools') openTool(sub); return; }
+  if (name === currentTab) { if (name === 'tools') { if (sub) openTool(sub); else goHome(); } return; }
   if (currentTab && TABS[currentTab].hide) TABS[currentTab].hide();
   currentTab = name;
   document.querySelectorAll('.tab').forEach((s) => s.classList.toggle('active', s.dataset.tab === name));

@@ -143,7 +143,7 @@ export function openWatchEditor(watch, opts = {}) {
 
   // Status
   const statusSel = el('div', { class: 'seg seg3' });
-  const statusBtns = [['owned', 'Collection'], ['wishlist', 'Wishlist'], ['sold', 'Sold']].map(([v, lab]) => {
+  const statusBtns = [['owned', 'Owned'], ['wishlist', 'Wishlist'], ['sold', 'Sold']].map(([v, lab]) => {
     const b = el('button', { type: 'button', class: 'seg-btn' + (w.status === v ? ' active' : ''), onclick: () => { w.status = v; statusBtns.forEach((x) => x.classList.toggle('active', x.dataset.v === v)); toggleGroups(); } }, lab);
     b.dataset.v = v;
     return b;

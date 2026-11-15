@@ -137,7 +137,7 @@ export function initTools(version) {
 export function showTools(sub) {
   tabVisible = true;
   if (sub && TOOLS.some((t) => t.id === sub)) openTool(sub);
-  else if (current) { const t = TOOLS.find((x) => x.id === current); if (t && t.show) t.show(); }
+  else if (current) openTool(current);
   else goHome();
 }
 
