@@ -1374,3 +1374,40 @@ dialog.cam.side .cam-toggles { flex-direction: column; }
 .gal-meta { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 14px; }
 @media (min-width: 560px) { .gal-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 textarea.input { font: inherit; }
+
+/* In rotation */
+.rot-sec, .map-sec { margin-top: 14px; }
+.rot-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 6px 0 12px; }
+.rot-stat { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 4px; text-align: center; min-width: 0; }
+.rot-stat-v { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.rot-stat-l { font-size: 11px; color: var(--muted); }
+.rot-bars { display: flex; flex-direction: column; gap: 5px; }
+.rot-bar { display: grid; grid-template-columns: minmax(0, 7.5em) minmax(0, 1fr) 3.6em; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.rot-bar.me { color: var(--text); font-weight: 700; }
+.rot-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rot-bar-track { height: 8px; background: var(--bg); border-radius: 99px; overflow: hidden; }
+.rot-bar-track i { display: block; height: 100%; background: var(--line); border-radius: 99px; }
+.rot-bar.me .rot-bar-track i { background: var(--accent); }
+.rot-bar-v { text-align: right; font-variant-numeric: tabular-nums; }
+.rot-months { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; height: 74px; margin: 12px 0 4px; }
+.rot-m { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+.rot-m-bar { flex: 1; width: 100%; display: flex; align-items: flex-end; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.rot-m-bar i { display: block; width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; }
+.rot-m-l { font-size: 10px; color: var(--muted); }
+.rot-facts { margin-top: 10px; }
+.rot-fun { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(125,255,200,.06); border: 1px solid rgba(125,255,200,.25); }
+.rot-fun-t { font-weight: 800; margin-bottom: 4px; }
+.rot-fun p { margin: 4px 0; font-size: 13px; }
+/* Where I've been */
+.map-box { margin: 6px 0 10px; border-radius: 12px; overflow: hidden; background: #0d1b2a; border: 1px solid var(--line); }
+svg.world { display: block; width: 100%; height: auto; }
+svg.world .land { fill: #2a3a4f; stroke: #3b4e66; stroke-width: .25; }
+svg.world .pin-halo { fill: rgba(251,191,36,.25); }
+svg.world .pin { fill: #fbbf24; stroke: #000; stroke-width: .4; }
+.map-list { display: flex; flex-direction: column; margin-bottom: 10px; }
+.map-item { position: relative; display: flex; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); }
+.map-item:first-child { border-top: 0; }
+.map-dot { width: 10px; height: 10px; border-radius: 50%; background: #fbbf24; flex: none; }
+.map-item-main { flex: 1; min-width: 0; }
+.map-item-name { font-weight: 700; font-size: 14px; }
+.map-x { position: static; flex: none; }

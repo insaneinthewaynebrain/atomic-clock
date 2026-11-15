@@ -1,14 +1,14 @@
 // Service worker: keeps the app working offline.
 // Online: always fetch the latest files from the network (so updates show straight away).
 // Offline: use the copies saved here.
-const VERSION = 'v54';
+const VERSION = 'v55';
 const CACHE = 'atomic-clock-' + VERSION;
 const SHELL = [
   './', './index.html', './styles.css', './manifest.webmanifest',
   './js/app.js', './js/store.js', './js/ui.js', './js/time.js', './js/clock.js',
   './js/tracker.js', './js/world.js', './js/weather.js', './js/currency.js',
   './js/config.js', './js/accuracy.js', './js/photos.js', './js/collection.js', './js/backup.js', './js/tools.js',
-  './js/wrist.js', './js/sharecard.js', './js/setting.js', './js/insurance.js', './js/timegrapher.js', './js/tick-worklet.js', './js/countdown.js', './js/alarm.js', './js/ring.js', './js/music.js', './js/sun.js', './js/timers.js', './js/meds.js', './js/sleep.js', './js/wakewords.js', './js/camera.js', './js/watchdb.js', './js/dialscan.js', './js/addwatch.js', './js/dialfind.js', './js/watchdocs.js', './js/galleries.js', './js/exif.js',
+  './js/wrist.js', './js/sharecard.js', './js/setting.js', './js/insurance.js', './js/timegrapher.js', './js/tick-worklet.js', './js/countdown.js', './js/alarm.js', './js/ring.js', './js/music.js', './js/sun.js', './js/timers.js', './js/meds.js', './js/sleep.js', './js/wakewords.js', './js/camera.js', './js/watchdb.js', './js/dialscan.js', './js/addwatch.js', './js/dialfind.js', './js/watchdocs.js', './js/galleries.js', './js/exif.js', './js/watchlife.js', './js/worldmap.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
 ];
 
