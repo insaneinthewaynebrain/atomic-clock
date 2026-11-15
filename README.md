@@ -1,28 +1,34 @@
 # Atomic Clock
 
-A personal iPhone web app (PWA): a network-synced clock for setting mechanical watches to the second, a watch accuracy tracker, a world clock, a weather forecast and a currency converter.
+A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouTube channel
+(https://www.youtube.com/watchhobbyist). It installs on an iPhone home screen like an app (PWA).
 
-It's a static site (HTML, CSS and JavaScript) with no build step, no backend and no API keys. All your data stays in your browser's localStorage. Use **Settings ⚙︎ → Export backup** now and then.
+- **Clock**: network-synced time to the millisecond for setting watches, plus an accuracy tracker
+  (+/− seconds and Mark), grades against COSC / METAS / Rolex / Grand Seiko and movement specs,
+  position testing, and shareable result cards.
+- **Collection**: watches, wishlist, sold/traded, photos, values and a collection summary.
+- **Wrist**: what you're wearing, a wear calendar and stats, power-reserve countdowns, and service,
+  warranty and battery reminders.
+- **Tools**: set to the minute (countdown with beeps), date-change danger zone, moon phase, GMT helper,
+  experimental microphone timegrapher, insurance list (PDF) and CSV export, world clock, weather,
+  currency, backup & settings, and About.
 
-## Data sources (all free, keyless, CORS-enabled)
+It's a static site with no build step, no backend, no API keys and no tracking. All data stays on the
+user's own phone (localStorage, with photos in IndexedDB). There's a JSON backup and restore, with
+photos optional.
 
-| Feature | Source |
-|---|---|
-| Network time | `time.now` (fallback: `timeapi.io`) |
-| Place search / time zones | Open-Meteo geocoding API |
-| Weather | Open-Meteo: UK Met Office `ukmo_seamless` model first, Open-Meteo `best_match` for any missing value |
-| Exchange rates | `open.er-api.com` (ExchangeRate-API), 160+ currencies, updated daily |
+## Data sources (free, keyless, CORS-enabled)
+- Time: `time.now` (fallback `timeapi.io`)
+- Weather and place search: Open-Meteo (Met Office `ukmo_seamless`, then `best_match`)
+- Town name: BigDataCloud (fallback OpenStreetMap Nominatim)
+- Exchange rates: open.er-api.com
+- Moon phase: calculated on the device
 
-## Files
+## Changing the name
+Edit `js/config.js` (app name and channel), plus `name`/`short_name` in `manifest.webmanifest` and `<title>` in `index.html`.
 
-- `index.html`, `styles.css`: the page and its look
-- `js/`: app code (`time.js` sync, `clock.js`, `tracker.js`, `world.js`, `weather.js`, `currency.js`)
-- `sw.js`: offline support. **Bump `VERSION` in `sw.js` whenever you change files**, so phones pick up the update.
-- `manifest.webmanifest`, `icons/`: home-screen app settings and icons
+## Releasing an update
+Bump `VERSION` in `sw.js` and `APP_VERSION` in `js/app.js`, and add any new files to `SHELL` in `sw.js`.
 
 ## Run locally
-
-```
-python3 -m http.server 8000
-```
-Then open http://localhost:8000
+`python3 -m http.server 8000`, then open http://localhost:8000

@@ -556,3 +556,16 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
   #print-view { position: static; }
   .print-bar { display: none; }
 }
+
+/* ================= Stage 6: Timegrapher ================= */
+.tg-card { margin-top: 12px; }
+.tg-readout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 12px; margin-top: 14px; }
+.tg-big { white-space: nowrap; font-size: clamp(24px, 7.4vw, 44px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tg-mid { font-size: clamp(24px, 7vw, 32px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.tg-big.good, .tg-mid.good { color: var(--green); } .tg-big.mid, .tg-mid.mid { color: var(--amber); } .tg-big.badr, .tg-mid.badr { color: var(--red); }
+.tg-meta { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.tg-trace { width: 100%; height: 120px; display: block; border-radius: 10px; border: 1px solid var(--line); margin-top: 10px; background: var(--bg); }
+.tg-status { font-size: 13px; color: var(--muted); margin-top: 10px; min-height: 18px; }
+.tg-status.warn { color: var(--amber); } .tg-status.bad { color: var(--red); }
+.btn.danger.primary, #tg-start.danger { background: rgba(248,113,113,.15); color: var(--red); border-color: rgba(248,113,113,.5); }
+@media (min-width: 700px) { .tool-panel[data-tool="timegrapher"] > div { max-width: 680px; margin: 0 auto; } }

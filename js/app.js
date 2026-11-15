@@ -14,11 +14,12 @@ import { APP_NAME } from './config.js';
 import * as wrist from './wrist.js';
 import * as setting from './setting.js';
 import * as insurance from './insurance.js';
+import * as timegrapher from './timegrapher.js';
 
-export const APP_VERSION = '10';
+export const APP_VERSION = '11';
 
 // Feature modules that register their own tabs/tools.
-const EXTRA_MODULES = [wrist, setting, insurance];
+const EXTRA_MODULES = [wrist, setting, insurance, timegrapher];
 
 const TABS = {
   clock: { show: showClock, hide: hideClock },
