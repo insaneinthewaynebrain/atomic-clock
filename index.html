@@ -25,21 +25,26 @@
         <h1>Atomic Clock</h1>
       </header>
 
-      <button id="sync-status" class="sync-status" type="button" aria-live="polite">
-        <span class="dot"></span><span class="sync-text">Syncing with network time…</span>
-      </button>
-      <div id="sync-detail" class="sync-detail"></div>
+      <div class="clock-layout">
+        <div class="clock-pane">
+          <button id="sync-status" class="sync-status" type="button" aria-live="polite">
+            <span class="dot"></span><span class="sync-text">Syncing with network time…</span>
+          </button>
+          <div id="sync-detail" class="sync-detail"></div>
 
-      <div class="clock" aria-label="Current time">
-        <div class="clk-hm" id="clk-hm">--:--</div>
-        <div class="clk-big"><span id="clk-s">--</span><span class="clk-ms" id="clk-ms">.---</span></div>
-        <div class="clk-date" id="clk-date"></div>
-        <div class="clk-tz" id="clk-tz"></div>
-        <div class="clk-wake" id="clk-wake"></div>
+          <div class="clock" aria-label="Current time">
+            <div class="clk-hm" id="clk-hm">--:--</div>
+            <div class="clk-big" id="clk-big"><span id="clk-s">--</span><span class="clk-ms" id="clk-ms">.---</span></div>
+            <div class="clk-date" id="clk-date"></div>
+            <div class="clk-tz" id="clk-tz"></div>
+            <div class="clk-wake" id="clk-wake"></div>
+          </div>
+        </div>
+        <div class="tracker-pane">
+          <div class="card" id="tracker"></div>
+          <div class="footer-links"><button type="button" id="backup-link" class="link-btn">Backup &amp; restore</button></div>
+        </div>
       </div>
-
-      <div class="card" id="tracker"></div>
-      <div class="footer-links"><button type="button" id="backup-link" class="link-btn">Backup &amp; restore</button></div>
     </section>
 
     <!-- WORLD -->

@@ -8,7 +8,7 @@ import { initWeather, showWeather } from './weather.js';
 import { initCurrency, showCurrency } from './currency.js';
 import { el, openModal, confirmModal, toast } from './ui.js';
 
-export const APP_VERSION = '4';
+export const APP_VERSION = '5';
 
 const TABS = {
   clock: { show: showClock, hide: hideClock },
