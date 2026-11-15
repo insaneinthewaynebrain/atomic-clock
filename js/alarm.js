@@ -12,12 +12,16 @@ import { normTone, TONE_SHORT } from './music.js';
 import { sunriseOn } from './sun.js';
 import { getPosition, nearestTown } from './weather.js';
 import * as timers from './timers.js';
+import * as sleep from './sleep.js';
+import { refreshQuotes, primeSpeech } from './wakewords.js';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];   // index 0 = Monday
 const BANKS = 5;
 const SNOOZE_MIN = 9;
 const CATCH_UP_MS = 2 * 60 * 1000;        // ring if the app was reopened within 2 min of the time
 const LIGHT_MINS = [10, 15, 20, 30, 45, 60];
+const WORDS = [['speak', 'Spoken and shown on screen'], ['show', 'Shown on screen only'], ['off', 'Off — music only']];
+const WORD_HINT = { soft: 'calm, yoga-style affirmations', medium: 'an upbeat pep talk for the work day', harsh: 'a drill sergeant telling you to get up' };
 const OFFSETS = [-60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60];
 const VIEWS = [['alarms', '⏰', 'Alarms'], ['timer', '⏳', 'Timer'], ['stopwatch', '⏱️', 'Stopwatch'],
   ['laps', '🏁', 'Lap timer'], ['eggs', '🥚', 'Egg timer'], ['meds', '💊', 'Medication']];
@@ -109,13 +113,18 @@ function ring(a, at) {
   if (!a.days?.length && !a.snoozed) a.enabled = false;   // one-off alarms switch themselves off
   store.save();
   if (a.light && sun && !sun.demo) drawSun(1);
+  sleep.stopMic();     // the iPhone plays quietly while the microphone is on, so stop listening first
   const done = (snooze) => {
     hideSun();
     if (snooze) {
       a.snoozeAt = Math.round(now()) + SNOOZE_MIN * 60000;
       a.enabled = true; a.snoozed = true;
       toast(`Snoozing until ${hhmm(a.snoozeAt)}`);
-    } else { a.snoozed = false; if (!a.days?.length) a.enabled = false; }
+      if (sleep.sleeping()) sleep.startSleep(store.get().sleep.current.listen);
+    } else {
+      a.snoozed = false; if (!a.days?.length) a.enabled = false;
+      if (sleep.sleeping()) { stopBedside(true); sleep.endSleep(); }
+    }
     store.save();
     if (panelOpen) render();
     updateClockLine();
@@ -124,7 +133,7 @@ function ring(a, at) {
     icon: a.mode === 'sunrise' ? '🌅' : '⏰',
     title: a.label || `Alarm ${a.bank >= 0 ? a.bank + 1 : ''}`.trim(),
     label: a.mode === 'sunrise' ? 'Good morning — the sun is up' : null,
-    sound: a.sound, sunlit: !!a.light,
+    sound: a.sound, sunlit: !!a.light, words: a.words || 'speak',
     buttons: [{ label: `Snooze ${SNOOZE_MIN} min`, fn: () => done(true) }, { label: 'Stop', kind: 'primary', fn: () => done(false) }],
     onTimeout: () => done(false),
   });
@@ -217,24 +226,51 @@ function previewSunrise() {
 }
 
 /* ---------- Bedside mode ---------- */
+function bedtime() {
+  unlockAudio(); primeSpeech();
+  const listen = el('input', { type: 'checkbox', class: 'check', checked: d().sleepListen !== false });
+  const n = nextAlarm();
+  openModal({
+    title: '🌙 Good night',
+    content: [
+      el('p', {}, n ? `Your next alarm is ${hhmm(n.at)} (in ${inText(n.at - now())}). ` : 'No alarm is set. ', 'A sleep timer starts now, and in the morning you’ll see how long you slept.'),
+      el('label', { class: 'field check-field' }, listen, el('span', {}, 'Listen for snoring and restless sleep')),
+      el('p', { class: 'muted small' }, 'Uses the microphone all night. Sounds are checked on your phone as they happen — nothing is recorded, saved or sent anywhere. Put the phone on charge, face up, near the bed.'),
+    ],
+    actions: [{ label: 'Cancel' }, { label: 'Start', kind: 'primary', onClick: async () => {
+      d().sleepListen = listen.checked; store.save();
+      const started = sleep.startSleep(listen.checked);   // the timer starts straight away
+      startBedside();
+      const err = await started;
+      if (err) toast(err, 6000);
+    } }],
+  });
+}
+
 function startBedside() {
   unlockAudio();
   if (bedside) return;
   bedside = el('div', { id: 'bedside', class: 'bedside', onclick: (e) => { if (e.target.closest('.bs-exit')) return; bedside.classList.toggle('bright'); } },
     el('div', { class: 'bs-time', id: 'bs-time' }, ''),
     el('div', { class: 'bs-next', id: 'bs-next' }, ''),
-    el('button', { type: 'button', class: 'bs-exit', onclick: stopBedside }, 'Exit bedside mode'));
+    el('div', { class: 'bs-sleep', id: 'bs-sleep' }, ''),
+    el('button', { type: 'button', class: 'bs-exit', onclick: () => stopBedside() }, 'Exit bedside mode'));
   document.body.append(bedside);
   if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { bedWake = w; }).catch(() => {});
   const draw = () => {
     $('bs-time').textContent = hhmm(now());
     const n = nextAlarm();
     $('bs-next').textContent = n ? `${n.a.light ? '🌅' : '⏰'} ${hhmm(n.at)} · ${n.a.label || 'Alarm'}` : 'No alarm set';
+    $('bs-sleep').textContent = sleep.bedsideLine();
   };
   draw();
   bedTimer = setInterval(draw, 5000);
 }
-function stopBedside() {
+async function stopBedside(quiet) {
+  if (!quiet && sleep.sleeping()) {
+    const end = await confirmModal('End the night?', 'Stop the sleep timer and see your summary? Choose Cancel to leave Bedside mode but keep the sleep timer running.', 'End & show summary');
+    if (end) sleep.endSleep();
+  }
   clearInterval(bedTimer);
   bedside?.remove(); bedside = null;
   if (bedWake) { bedWake.release().catch(() => {}); bedWake = null; }
@@ -294,6 +330,7 @@ function editAlarm(bank, a, saved) {
     draft.sound = tone.select.value;
     draft.light = lightOn.checked;
     draft.lightMin = Number(lightSel.value);
+    draft.words = wordsSel.value;
     return draft;
   };
   const updSun = () => {
@@ -333,7 +370,11 @@ function editAlarm(bank, a, saved) {
     } }, name.slice(0, 2));
     return b;
   });
-  const tone = toneField(draft.sound);
+  const tone = toneField(draft.sound, () => updWords());
+  const wordsSel = el('select', { class: 'input' }, WORDS.map(([v, l]) => el('option', { value: v, selected: (draft.words || 'speak') === v }, l)));
+  const wordsHint = el('p', { class: 'muted small' });
+  const updWords = () => { wordsHint.textContent = `With the ${tone.select.selectedOptions[0].text.split(' — ')[0]} tone: ${WORD_HINT[tone.select.value]}, plus matching quotes when online.`; };
+  updWords();
   const lightOn = el('input', { type: 'checkbox', class: 'switch', checked: !!draft.light, onchange: updSun });
   const lightSel = el('select', { class: 'input', onchange: updSun }, LIGHT_MINS.map((m) => el('option', { value: m, selected: draft.lightMin === m }, `Starts ${m} min before the alarm`)));
   updSun();
@@ -353,6 +394,7 @@ function editAlarm(bank, a, saved) {
       el('label', { class: 'field' }, el('span', {}, 'Repeat (none selected = once)'), el('div', { class: 'day-chips' }, dayBtns)),
       el('label', { class: 'field' }, el('span', {}, 'Label'), labelIn),
       tone,
+      el('label', { class: 'field' }, el('span', {}, 'Wake-up words'), wordsSel), wordsHint,
     ],
     actions: [
       ...(isNew ? [] : [{ label: 'Clear', kind: 'danger', onClick: () => { setTimeout(async () => {
@@ -366,10 +408,13 @@ function editAlarm(bank, a, saved) {
         const out = { ...draft, bank, enabled: true, snoozeAt: null, snoozed: false, lightSkip: null };
         let target = a;
         if (isNew) { target = { id: store.uid(), ...out }; alarms().push(target); } else Object.assign(a, out);
-        store.save(); unlockAudio(); render(); updateClockLine();
+        store.save(); unlockAudio(); primeSpeech(); render(); updateClockLine();
         const n = nextRing(target);
         if (n) toast(`Alarm in ${inText(n - now())}`);
         else if (draft.mode === 'sunrise') toast('No sunrise in the next week there');
+        // Setting an alarm in the evening: offer to start the night straight away.
+        const h = new Date(now()).getHours();
+        if (n && (h >= 19 || h < 3) && n - now() < 14 * 3600000 && !sleep.sleeping()) setTimeout(bedtime, 400);
       } },
     ],
   });
@@ -421,8 +466,9 @@ function renderAlarms(box) {
       el('h2', { class: 'card-title' }, 'Alarm banks ', el('span', { class: 'muted small' }, 'your 5 saved alarms — switch on the ones you need')),
       el('div', { class: 'alarm-list' }, rows),
       others.length ? [el('h3', { class: 'sub-title' }, 'Other alarms'), el('div', { class: 'alarm-list' }, others.map(alarmRow))] : null),
-    el('button', { type: 'button', class: 'btn primary wide bedside-btn', onclick: startBedside }, '🌙 Bedside mode'),
-    el('p', { class: 'muted small center' }, 'A dim clock showing your next alarm. Tap it to brighten; tap “Exit” to leave. Turn the volume up and touch the screen once so sound is allowed.'),
+    el('button', { type: 'button', class: 'btn primary wide bedside-btn', onclick: bedtime }, sleep.sleeping() ? '🌙 Back to Bedside mode' : '🌙 Going to sleep — Bedside mode'),
+    el('p', { class: 'muted small center' }, 'Starts your sleep timer and shows a dim clock with your next alarm. Optionally listens for snoring and restless sleep. Tap the clock to brighten it.'),
+    nightCard(),
     el('div', { class: 'card sun-card' },
       el('h2', { class: 'card-title' }, '🌅 Sunrise wake-up'),
       el('p', { class: 'small' }, 'Sunrise alarm clocks copy the dawn: the light builds slowly for half an hour or so before the alarm. Gradual morning light is the body’s natural cue to wake — it helps switch off the sleep hormone melatonin and lift cortisol, so you surface from sleep gently instead of being jolted awake.'),
@@ -434,6 +480,32 @@ function renderAlarms(box) {
         el('button', { type: 'button', class: 'btn sm', onclick: () => chooseSunPlace(render) }, p && !p.fromWeather ? 'Change' : 'Set')),
       p ? sunToday(p) : null,
       el('button', { type: 'button', class: 'btn wide', onclick: previewSunrise }, 'Preview the sunrise (1 minute)')));
+}
+
+function nightCard() {
+  const cur = store.get().sleep?.current;
+  const last = sleep.lastNight();
+  if (cur) {
+    return el('div', { class: 'card' }, el('h2', { class: 'card-title' }, '💤 Sleep timer running'),
+      el('p', { class: 'small' }, sleep.bedsideLine()),
+      el('button', { type: 'button', class: 'btn wide', onclick: () => { sleep.endSleep(); render(); } }, 'I’m up — end the night'));
+  }
+  if (!last) return '';
+  const hist = sleep.history().slice(0, 7);
+  return el('div', { class: 'card' },
+    el('h2', { class: 'card-title' }, '💤 Last night'),
+    el('button', { type: 'button', class: 'night-row', onclick: () => sleep.showSummary(last) },
+      el('span', {}, nightText(last)), el('span', { class: 'muted' }, '›')),
+    hist.length > 1 ? el('details', { class: 'night-hist' }, el('summary', { class: 'small muted' }, 'Previous nights'),
+      hist.slice(1).map((n) => el('button', { type: 'button', class: 'night-row', onclick: () => sleep.showSummary(n) }, el('span', {}, nightText(n)), el('span', { class: 'muted' }, '›')))) : null);
+}
+
+function nightText(n) {
+  const day = new Date(n.end).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  const m = Math.round((n.end - (n.listen ? n.onset : n.start)) / 60000);
+  const bits = [`${day}: ${Math.floor(m / 60)} h ${pad(m % 60)} min`];
+  if (n.listen) bits.push(n.snoreMin ? `snoring ~${n.snoreMin} min` : 'no snoring', n.restMin || n.voices?.length ? 'restless spells' : 'settled');
+  return bits.join(' · ');
 }
 
 function sunToday(p) {
@@ -474,6 +546,7 @@ export function register({ registerTool }) {
   const slot = $('zone-slot');
   if (slot && !$('alarm-line')) slot.after(el('button', { type: 'button', id: 'alarm-line', class: 'alarm-line', hidden: true, onclick: () => { d().alarmView = 'alarms'; location.hash = 'tools/alarm'; } }));
   timers.init(() => { if (panelOpen) render(); });
+  refreshQuotes();
   setInterval(check, 500);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
   updateClockLine();

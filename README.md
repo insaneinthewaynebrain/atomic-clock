@@ -14,9 +14,12 @@ A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouT
   currency, backup & settings, and About.
 - **Alarm & timers** (in Tools): 5 saved alarm banks, each with an optional sunrise wake light
   (screen glows red → orange → warm white before the alarm) and a set time or the real local sunrise;
-  Bedside mode; countdown timer, stopwatch, lap timer, egg timer and up to 20 named medication timers.
-  Every alarm and timer can use one of three tones (Soft spa, Medium pop, Harsh rock). The tones are
-  composed for this app and synthesised live with Web Audio, so they're royalty-free and work offline.
+  Bedside mode with a sleep timer and optional on-device listening for snoring and restless sleep
+  (nothing is recorded); countdown timer, stopwatch, lap timer, egg timer, and up to 20 medication
+  timers that follow the packet (adult/child dose, "every 4–6 hours" windows, 24-hour maximum,
+  food and expiry warnings). Every alarm and timer can use one of three tones (Soft spa, Medium pop,
+  Harsh rock), composed for this app and synthesised live with Web Audio, so they're royalty-free and
+  work offline. Alarms also show and speak wake-up words to match the tone, with quotes from the internet.
 
 It's a static site with no build step, no backend, no API keys and no tracking. All data stays on the
 user's own phone (localStorage, with photos in IndexedDB). There's a JSON backup and restore, with
@@ -27,6 +30,7 @@ photos optional.
 - Weather and place search: Open-Meteo (Met Office `ukmo_seamless`, then `best_match`)
 - Town name: BigDataCloud (fallback OpenStreetMap Nominatim)
 - Exchange rates: open.er-api.com
+- Wake-up quotes: DummyJSON (dummyjson.com/quotes), sorted by mood on the device
 - Moon phase and sunrise times: calculated on the device
 
 ## Changing the name

@@ -4,13 +4,16 @@ import { now } from './time.js';
 import { el, pad, toast } from './ui.js';
 import { getAudio, unlockAudio } from './countdown.js';
 import { playTone, RAMP, normTone, TONES } from './music.js';
+import { messagesFor, speak, stopSpeaking } from './wakewords.js';
 
 const GIVE_UP_MS = 10 * 60 * 1000;
 const $ = (id) => document.getElementById(id);
 let cur = null, queue = [], timer = null, player = null, wake = null, started = 0;
+let msgs = [], nextMsgAt = 0, speaking = false;
+const MSG_EVERY = 18000;   // a new wake-up message about every 18 seconds
 
 /**
- * opts: { icon, title, label, sound, sunlit, buttons: [{ label, kind, fn }], onTimeout }
+ * opts: { icon, title, label, sound, sunlit, words: 'speak' | 'show' | 'off', buttons: [{ label, kind, fn }], onTimeout }
  * The first button is the main one; every button stops the sound.
  */
 export function ringAlert(opts) {
@@ -23,13 +26,34 @@ export function ringAlert(opts) {
     el('div', { class: 'ar-time', id: 'ar-time' }, ''),
     el('div', { class: 'ar-label' }, opts.title || 'Alarm'),
     opts.label ? el('div', { class: 'ar-sub' }, opts.label) : null,
+    opts.words && opts.words !== 'off' ? el('div', { class: 'ar-msg', id: 'ar-msg', 'aria-live': 'polite' }) : null,
     el('div', { class: 'ar-btns' + (opts.buttons.length === 1 ? ' one' : '') }, opts.buttons.map((b) =>
       el('button', { type: 'button', class: 'btn ' + (b.kind || ''), onclick: () => finish(b.fn) }, b.label))));
   document.body.append(overlay);
   if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { wake = w; }).catch(() => {});
   if (navigator.vibrate) try { navigator.vibrate([400, 200, 400]); } catch (e) { /* not supported */ }
+  msgs = opts.words && opts.words !== 'off' ? messagesFor(opts.sound) : [];
+  nextMsgAt = Date.now() + 2500;
+  speaking = false;
   beat();
   timer = setInterval(beat, 1000);
+}
+
+function nextMessage() {
+  const box = $('ar-msg');
+  if (!box || !msgs.length) return;
+  const m = msgs.shift(); msgs.push(m);
+  box.classList.remove('show');
+  box.innerHTML = '';
+  box.append(el('div', { class: 'ar-msg-text' }, `“${m.text.replace(/^[“"]|[”"]$/g, '')}”`));
+  if (m.by) box.append(el('div', { class: 'ar-msg-by' }, '— ' + m.by));
+  requestAnimationFrame(() => box.classList.add('show'));
+  if (cur.words === 'speak') {
+    speaking = true;
+    player?.setVolume(0.12);
+    const mine = cur;
+    speak(m, cur.sound).then(() => { if (cur === mine) speaking = false; });
+  }
 }
 
 export const isRinging = () => !!cur;
@@ -40,14 +64,17 @@ function beat() {
   const tone = normTone(cur.sound);
   const [v0, v1, secs] = RAMP[tone];
   const vol = Math.min(v1, v0 + ((Date.now() - started) / 1000 / secs) * (v1 - v0));
-  if (!player) { const ctx = getAudio(); if (ctx) player = playTone(ctx, tone, vol); }
-  else player.setVolume(vol);
+  if (msgs.length && Date.now() >= nextMsgAt) { nextMsgAt = Date.now() + MSG_EVERY; nextMessage(); }
+  const v = speaking ? vol * 0.18 : vol;           // music dips while the voice talks
+  if (!player) { const ctx = getAudio(); if (ctx) player = playTone(ctx, tone, v); }
+  else player.setVolume(v);
   if (Date.now() - started > GIVE_UP_MS) { const f = cur.onTimeout; finish(f); }
 }
 
 function finish(fn) {
   clearInterval(timer); timer = null;
   player?.stop(); player = null;
+  stopSpeaking(); msgs = []; speaking = false;
   $('alarm-ring')?.remove();
   if (wake) { wake.release().catch(() => {}); wake = null; }
   cur = null;

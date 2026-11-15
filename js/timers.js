@@ -1,11 +1,11 @@
 // Timers in the Alarm section: countdown, stopwatch, lap timer, egg timer and up to 20 medication
 // timers. Running timers store their end time, so they carry on through tab changes and reloads.
 import * as store from './store.js';
-import { el, pad, toast, confirmModal } from './ui.js';
+import { el, pad, toast } from './ui.js';
 import { unlockAudio } from './countdown.js';
 import { ringAlert, toneField } from './ring.js';
+import { newMed, tidy, checkMeds, viewMeds } from './meds.js';
 
-const MAX_MEDS = 20;
 const LATE_MS = 10 * 60 * 1000;     // timers that ended while the app was closed still ring for 10 min
 const $ = (id) => document.getElementById(id);
 let changed = () => {};
@@ -19,9 +19,9 @@ function T() {
   t.egg ||= { type: 'soft', size: 'L', cold: true, sound: 'soft' };
   t.meds ||= [];
   if (!t.meds.length) t.meds.push(newMed());
+  t.meds.forEach(tidy);
   return t;
 }
-const newMed = () => ({ id: store.uid(), name: '', h: 4, m: 0, sound: 'medium', endAt: null, startedAt: null, rang: false });
 const save = () => store.save();
 
 /* ---------- Formatting ---------- */
@@ -63,12 +63,7 @@ export function check() {
     if (late < LATE_MS) ringAlert({ icon: '🥚', title: `${egg.name} eggs are ready`, label: egg.after, sound: e.sound,
       buttons: [{ label: 'Done', kind: 'primary' }] });
   }
-  for (const m of all.meds) {
-    if (!m.endAt || m.rang || t < m.endAt) continue;
-    m.rang = true; save(); changed();
-    ringAlert({ icon: '💊', title: m.name || 'Medication', label: `Due at ${hhmm(m.endAt)} — take it as directed on the packaging`, sound: m.sound,
-      buttons: [{ label: 'Dismiss' }, { label: 'Taken — restart', kind: 'primary', fn: () => { restartMed(m); changed(); } }] });
-  }
+  checkMeds(all.meds, changed);
 }
 
 /* ---------- Countdown timer ---------- */
@@ -226,68 +221,7 @@ function viewEggs(box, rerender) {
   return null;
 }
 
-/* ---------- Medication timers ---------- */
-const interval = (m) => ((m.h || 0) * 60 + (m.m || 0)) * 60000;
-function restartMed(m) {
-  const iv = interval(m);
-  if (iv < 60000) { toast('Set how often first'); return false; }
-  m.startedAt = Date.now(); m.endAt = m.startedAt + iv; m.rang = false; save();
-  toast(`${m.name || 'Timer'}: next due at ${hhmm(m.endAt)}`);
-  return true;
-}
-
-function medStatus(m) {
-  const t = Date.now();
-  if (!m.endAt) return { cls: 'idle', big: clock(interval(m)), text: 'Not started' };
-  if (t < m.endAt) return { cls: 'run', big: clock(m.endAt - t), text: `Next dose due at ${hhmm(m.endAt)} · started ${hhmm(m.startedAt)}` };
-  return { cls: 'due', big: 'Due now', text: `Due since ${hhmm(m.endAt)} (${words(t - m.endAt)} ago)` };
-}
-
-function viewMeds(box, rerender) {
-  const meds = T().meds;
-  const cards = meds.map((m, i) => {
-    const st = medStatus(m);
-    const big = el('div', { class: 'med-big' }, st.big), txt = el('div', { class: 'small med-txt' }, st.text);
-    const card = el('div', { class: `card med-card ${st.cls}` },
-      el('div', { class: 'med-head' }, el('span', { class: 'bank-no' }, String(i + 1)),
-        el('input', { type: 'text', class: 'input med-name', value: m.name, placeholder: 'Medicine name, e.g. Ibuprofen', 'aria-label': 'Medicine name',
-          onchange: (ev) => { m.name = ev.target.value.trim(); save(); } })),
-      el('div', { class: 'med-every' }, el('span', { class: 'muted small' }, 'Every'),
-        numIn(m.h, 72, 'hours', (ev) => { m.h = clampInt(ev.target.value, 72); save(); }),
-        numIn(m.m, 59, 'min', (ev) => { m.m = clampInt(ev.target.value, 59); save(); })),
-      el('div', { class: 'med-status' }, big, txt),
-      el('div', { class: 'med-btns' },
-        el('button', { type: 'button', class: 'btn primary', onclick: () => { unlockAudio(); if (restartMed(m)) rerender(); } }, m.endAt ? '↻ Restart' : '▶ Start'),
-        el('button', { type: 'button', class: 'btn', disabled: !m.endAt, onclick: () => { m.endAt = null; m.startedAt = null; m.rang = false; save(); rerender(); } }, 'Reset'),
-        el('button', { type: 'button', class: 'btn danger', onclick: async () => {
-          if (!(await confirmModal(`Delete ${m.name || 'this timer'}?`, 'Its name and settings will be removed.', 'Delete', true))) return;
-          const list = T().meds;
-          list.splice(list.indexOf(m), 1);
-          save(); rerender();
-        } }, 'Delete')),
-      toneField(m.sound, (v) => { m.sound = v; save(); }, 'Alarm sound'),
-      m.endAt ? el('p', { class: 'muted small' }, 'Changes to the time apply the next time you start or restart it.') : null);
-    return { card, m, big, txt };
-  });
-  box.append(
-    el('div', { class: 'notice warn' }, el('b', {}, 'Always follow the directions on the packaging or patient leaflet, '),
-      'and your doctor’s or pharmacist’s advice. These timers are only reminders — they don’t check doses, limits or how medicines mix, and they only ring while this app is open on screen.'),
-    ...cards.map((c) => c.card),
-    meds.length < MAX_MEDS
-      ? el('button', { type: 'button', class: 'btn wide add-med', onclick: () => { meds.push(newMed()); save(); rerender(); setTimeout(() => { const n = document.querySelectorAll('.med-name'); n[n.length - 1]?.focus(); }, 50); } },
-        `＋ Add another medication timer (${meds.length} of ${MAX_MEDS})`)
-      : el('p', { class: 'muted small center' }, `All ${MAX_MEDS} medication timers are in use.`));
-  return () => {
-    for (const c of cards) {
-      const st = medStatus(c.m);
-      if (c.big.textContent !== st.big) c.big.textContent = st.big;
-      if (c.txt.textContent !== st.text) c.txt.textContent = st.text;
-      c.card.className = `card med-card ${st.cls}`;
-    }
-  };
-}
-
-const VIEWS = { timer: viewTimer, stopwatch: viewStopwatch, laps: viewLaps, eggs: viewEggs, meds: viewMeds };
+const VIEWS = { timer: viewTimer, stopwatch: viewStopwatch, laps: viewLaps, eggs: viewEggs, meds: (box, rerender) => viewMeds(box, rerender, T().meds) };
 
 /** Draws one timer screen into `box`; returns a function that refreshes the live numbers. */
 export function renderView(v, box, rerender) {
