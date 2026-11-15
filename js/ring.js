@@ -2,14 +2,14 @@
 // Alerts that fire while another is ringing wait their turn.
 import { now } from './time.js';
 import { el, pad, toast } from './ui.js';
-import { getAudio, unlockAudio } from './countdown.js';
+import { getAudio, unlockAudio, playBackup, stopBackup } from './countdown.js';
 import { playTone, RAMP, normTone, TONES } from './music.js';
 import { messagesFor, speak, stopSpeaking } from './wakewords.js';
 
 const GIVE_UP_MS = 10 * 60 * 1000;
 const $ = (id) => document.getElementById(id);
 let cur = null, queue = [], timer = null, player = null, wake = null, started = 0;
-let msgs = [], nextMsgAt = 0, speaking = false;
+let msgs = [], nextMsgAt = 0, speaking = false, backupOn = false;
 const MSG_EVERY = 18000;   // a new wake-up message about every 18 seconds
 
 /**
@@ -22,7 +22,9 @@ export function ringAlert(opts) {
   stopPreview();
   cur = opts;
   started = Date.now();
-  const overlay = el('div', { id: 'alarm-ring', class: 'alarm-ring' + (opts.sunlit ? ' sunlit' : ''), role: 'alertdialog', 'aria-label': opts.title || 'Alarm' },
+  const overlay = el('div', { id: 'alarm-ring', class: 'alarm-ring' + (opts.sunlit ? ' sunlit' : ''), role: 'alertdialog', 'aria-label': opts.title || 'Alarm',
+    onpointerdown: () => { unlockAudio(); setTimeout(beat, 150); } },
+    el('div', { class: 'ar-mute', id: 'ar-mute', hidden: true }, '🔇 Tap anywhere to turn the sound on'),
     el('div', { class: 'ar-icon' }, opts.icon || '⏰'),
     el('div', { class: 'ar-time', id: 'ar-time' }, ''),
     el('div', { class: 'ar-label' }, opts.title || 'Alarm'),
@@ -60,6 +62,7 @@ function nextMessage() {
 export const isRinging = () => !!cur;
 
 function beat() {
+  if (!cur) return;
   const t = $('ar-time');
   if (t) { const x = new Date(now()); t.textContent = `${pad(x.getHours())}:${pad(x.getMinutes())}`; }
   const tone = cur.sound === 'chime' ? 'chime' : normTone(cur.sound);
@@ -74,14 +77,23 @@ function beat() {
     speak({ text: cur.say }, 'medium').then(() => { if (cur === mine) speaking = false; });
   }
   const v = speaking ? vol * 0.18 : vol;           // music dips while the voice talks
-  if (!player) { const ctx = getAudio(); if (ctx) player = playTone(ctx, tone, v); }
-  else player.setVolume(v);
+  if (!player) {
+    const ctx = getAudio();
+    if (ctx) { player = playTone(ctx, tone, v); if (backupOn) { stopBackup(); backupOn = false; } }
+    else if (!backupOn && Date.now() - started > 1500) {
+      // Web Audio is still paused: fall back to the pre-approved chime, and ask for a tap if even that fails.
+      backupOn = true;
+      playBackup().then((ok) => { const m = $('ar-mute'); if (!ok) { backupOn = false; if (m) m.hidden = false; } });
+    }
+  } else player.setVolume(v);
+  const m = $('ar-mute'); if (m && player) m.hidden = true;
   if (Date.now() - started > GIVE_UP_MS) { const f = cur.onTimeout; finish(f); }
 }
 
 function finish(fn) {
   clearInterval(timer); timer = null;
   player?.stop(); player = null;
+  stopBackup(); backupOn = false;
   stopSpeaking(); msgs = []; speaking = false;
   $('alarm-ring')?.remove();
   if (wake) { wake.release().catch(() => {}); wake = null; }

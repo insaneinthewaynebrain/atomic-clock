@@ -29,6 +29,7 @@ function unlockAudio() {
     s.buffer = b; s.connect(audio.destination); s.start(0);
     unlocked = true;
   } catch (e) { unlocked = false; }
+  blessBackup();
   updateHint();
 }
 
@@ -47,9 +48,65 @@ function pip(atAudioTime, long) {
 
 function soundReady() { return audio && audio.state === 'running'; }
 
-/** Shared with the alarm: the unlocked audio context (or null until the first touch). */
-export function getAudio() { return soundReady() ? audio : null; }
+/**
+ Shared with the alarm: the unlocked audio context, or null if it isn't playing yet.
+ iPhone and iPad pause ("interrupt") Web Audio whenever the app loses focus — a screenshot,
+ Control Centre, a notification — so try to restart it every time it's asked for.
+*/
+export function getAudio() {
+  if (soundReady()) return audio;
+  if (audio && audio.state !== 'closed') { try { audio.resume().catch(() => {}); } catch (e) { /* ignore */ } }
+  return null;
+}
 export { unlockAudio };
+
+/* ---------- Backup alarm sound ----------
+ A looping chime in an <audio> element. Playing it once (muted) during a tap "blesses" it, so the
+ phone lets it play later without a tap — used if Web Audio still won't start when an alarm rings. */
+let backupEl = null, backupUrl = null;
+function chimeWav() {
+  const rate = 22050, secs = 2.4, n = Math.floor(rate * secs);
+  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, n * 2, true);
+  const notes = [[0, 1318.5], [0.45, 1046.5], [1.2, 1318.5], [1.65, 1046.5]];   // ding-dong, ding-dong
+  for (let i = 0; i < n; i++) {
+    const t = i / rate;
+    let x = 0;
+    for (const [at, f] of notes) {
+      const d = t - at;
+      if (d >= 0 && d < 1.2) x += Math.sin(2 * Math.PI * f * d) * Math.exp(-d * 4) * Math.min(1, d * 400) + 0.25 * Math.sin(4 * Math.PI * f * d) * Math.exp(-d * 7);
+    }
+    v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x * 0.6)) * 32767, true);
+  }
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+function blessBackup() {
+  try {
+    if (!backupEl) {
+      backupUrl = chimeWav();
+      backupEl = new Audio(backupUrl); backupEl.loop = true; backupEl.setAttribute('playsinline', '');
+    }
+    if (!backupEl.paused) return;
+    backupEl.muted = true;
+    backupEl.play().then(() => { backupEl.pause(); backupEl.currentTime = 0; backupEl.muted = false; }).catch(() => { backupEl.muted = false; });
+  } catch (e) { /* ignore */ }
+}
+/** Play the backup chime; resolves true if the phone allowed it. */
+export function playBackup() {
+  if (!backupEl) return Promise.resolve(false);
+  backupEl.muted = false; backupEl.volume = 1; backupEl.currentTime = 0;
+  return backupEl.play().then(() => true).catch(() => false);
+}
+export function stopBackup() { try { backupEl?.pause(); } catch (e) { /* ignore */ } }
+
+// Bring the sound back whenever the app comes back to the front.
+for (const ev of ['visibilitychange', 'pageshow', 'focus']) {
+  window.addEventListener(ev, () => { if (document.visibilityState === 'visible') getAudio(); });
+}
 
 /* ---------- Colours ---------- */
 const GREEN = [34, 197, 94], AMBER = [251, 191, 36], RED = [239, 68, 68];

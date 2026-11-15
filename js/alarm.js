@@ -412,6 +412,32 @@ function editAlarm(bank, a, saved) {
     } }, name.slice(0, 2));
     return b;
   });
+  // Once or repeating: two big choices; the day buttons only show for "Repeat".
+  let repeat = draft.days.length > 0, lastDays = repeat ? [...draft.days] : [0, 1, 2, 3, 4];
+  const dayBox = el('div', { class: 'day-chips' }, dayBtns);
+  const onceHint = el('p', { class: 'muted small once-hint' });
+  const updOnce = () => {
+    dayBox.hidden = !repeat; onceHint.hidden = repeat;
+    if (!repeat) {
+      const t = draft.mode === 'sunrise' ? null : (timeIn.value || draft.time);
+      if (!t) { onceHint.textContent = 'Rings once, then switches itself off.'; return; }
+      const at = todayAt(t, now());
+      onceHint.textContent = `Rings once — ${at > now() ? 'today' : 'tomorrow'} at ${t} — then switches itself off.`;
+    }
+  };
+  const repBtns = [[false, 'Once'], [true, 'Repeat on days']].map(([r, l]) => {
+    const b = el('button', { type: 'button', class: 'seg-btn' + (repeat === r ? ' active' : ''), onclick: () => {
+      if (repeat === r) return;
+      repeat = r;
+      if (r) { draft.days = [...lastDays]; } else { lastDays = draft.days.length ? [...draft.days] : lastDays; draft.days = []; }
+      dayBtns.forEach((x, i) => x.classList.toggle('on', draft.days.includes(i)));
+      repBtns.forEach((x) => x.classList.toggle('active', x === b));
+      updOnce();
+    } }, l);
+    return b;
+  });
+  timeIn.addEventListener('change', updOnce);
+  updOnce();
   const tone = toneField(draft.sound, () => updWords());
   const wordsSel = el('select', { class: 'input' }, WORDS.map(([v, l]) => el('option', { value: v, selected: (draft.words || 'speak') === v }, l)));
   const wordsHint = el('p', { class: 'muted small' });
@@ -433,7 +459,7 @@ function editAlarm(bank, a, saved) {
         el('p', { class: 'muted small' }, 'The screen glows from deep red to warm white, like a sunrise lamp, so you wake gently before the sound.'),
         lightSel,
         el('button', { type: 'button', class: 'link-btn', onclick: previewSunrise }, 'Preview the sunrise (1 minute)')),
-      el('label', { class: 'field' }, el('span', {}, 'Repeat (none selected = once)'), el('div', { class: 'day-chips' }, dayBtns)),
+      el('div', { class: 'field' }, el('span', {}, 'How often'), el('div', { class: 'seg' }, repBtns), dayBox, onceHint),
       el('label', { class: 'field' }, el('span', {}, 'Label'), labelIn),
       tone,
       el('label', { class: 'field' }, el('span', {}, 'Wake-up words'), wordsSel), wordsHint,
@@ -446,6 +472,7 @@ function editAlarm(bank, a, saved) {
       { label: 'Save', kind: 'primary', onClick: () => {
         readDraft();
         if (draft.mode === 'time' && !/^\d{2}:\d{2}$/.test(draft.time)) { toast('Choose a time'); return false; }
+        if (repeat && !draft.days.length) { toast('Choose at least one day — or pick “Once”'); return false; }
         if (draft.mode === 'sunrise' && !sunPlace()) { toast('Set your location first'); return false; }
         const out = { ...draft, bank, enabled: true, snoozeAt: null, snoozed: false, lightSkip: null };
         let target = a;
@@ -510,6 +537,7 @@ function renderAlarms(box) {
       others.length ? [el('h3', { class: 'sub-title' }, 'Other alarms'), el('div', { class: 'alarm-list' }, others.map(alarmRow))] : null),
     el('button', { type: 'button', class: 'btn primary wide bedside-btn', onclick: bedtime }, sleep.sleeping() ? '🌙 Back to Bedside mode' : '🌙 Going to sleep — Bedside mode'),
     el('p', { class: 'muted small center' }, 'Starts your sleep timer and shows a dim clock with your next alarm. Optionally listens for snoring and restless sleep. Tap the clock to brighten it.'),
+    el('button', { type: 'button', class: 'btn wide', onclick: testAlarm }, '🔔 Test the alarm sound (rings in 10 seconds)'),
     nightCard(),
     el('div', { class: 'card sun-card' },
       el('h2', { class: 'card-title' }, '🌅 Sunrise wake-up'),
@@ -523,6 +551,17 @@ function renderAlarms(box) {
       el('button', { type: 'button', class: 'link-btn', onclick: () => chooseSunPlace(render) }, 'Choose a place instead'),
       p ? sunToday(p) : null,
       el('button', { type: 'button', class: 'btn wide', onclick: previewSunrise }, 'Preview the sunrise (1 minute)')));
+}
+
+function testAlarm() {
+  unlockAudio(); primeSpeech();
+  const a = alarms().find((x) => x.enabled) || alarms()[0];
+  toast('Test alarm in 10 seconds — leave the app open', 4000);
+  setTimeout(() => ringAlert({
+    icon: '🔔', title: 'Test alarm', sound: a?.sound || 'soft', words: a?.words || 'speak',
+    label: 'If you can hear this, your alarms will sound while the app is open. Check the volume buttons if it’s quiet.',
+    buttons: [{ label: 'Stop', kind: 'primary' }],
+  }), 10000);
 }
 
 function nightCard() {
