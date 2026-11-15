@@ -192,9 +192,9 @@ function renderGmt() {
 
 /* ========================================================= */
 export function register({ registerTool }) {
-  registerTool({ id: 'datezone', title: 'Date change safety', icon: '📅', desc: 'When it’s safe to change the date', panel: 'setting', show: renderZone, order: 10 });
+  registerTool({ id: 'datezone', title: 'Date change safety', icon: '📅', desc: 'When it’s safe to change the date', panel: 'setting', show: renderZone, group: 'general', order: 10 });
   registerTool({ id: 'moon', title: 'Moon phase', icon: '🌔', desc: 'Set your moonphase', panel: 'moon', show: renderMoon, order: 20 });
-  registerTool({ id: 'gmt', title: 'GMT helper', icon: '🌐', desc: 'Where the GMT hand points', panel: 'gmt', show: renderGmt, hide: () => clearInterval(gmtTimer), order: 30 });
+  registerTool({ id: 'gmt', title: 'GMT helper', icon: '🌐', desc: 'Where the GMT hand points', panel: 'gmt', show: renderGmt, hide: () => clearInterval(gmtTimer), group: 'general', order: 30 });
   // Danger-zone warning on the Clock tab (only shown 21:00–03:00).
   const slot = document.getElementById('zone-slot');
   if (slot && !$('clock-zone')) slot.append(el('div', { id: 'clock-zone', class: 'zone-box', role: 'alert', hidden: true }));

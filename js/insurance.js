@@ -130,5 +130,5 @@ function render() {
 }
 
 export function register({ registerTool }) {
-  registerTool({ id: 'insurance', title: 'Insurance & export', icon: '🛡️', desc: 'PDF list and spreadsheet', panel: 'insurance', show: render, order: 80 });
+  registerTool({ id: 'insurance', title: 'Insurance & export', icon: '🛡️', desc: 'PDF list and spreadsheet', panel: 'insurance', show: render, group: 'general', order: 80 });
 }

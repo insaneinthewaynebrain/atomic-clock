@@ -38,7 +38,7 @@ export function registerTab(name, def) {
 
 export function switchTab(name, sub) {
   if (!TABS[name]) return;
-  if (name === currentTab) { if (name === 'tools') { if (sub) openTool(sub); else goHome(); } return; }
+  if (name === currentTab) { if (name === 'tools') { if (sub) showTools(sub); else goHome(); } return; }
   if (currentTab && TABS[currentTab].hide) TABS[currentTab].hide();
   currentTab = name;
   document.querySelectorAll('.tab').forEach((s) => s.classList.toggle('active', s.dataset.tab === name));

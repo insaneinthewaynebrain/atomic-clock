@@ -21,24 +21,58 @@ export function registerTool(t) {
 
 const $ = (id) => document.getElementById(id);
 
+// Tools marked group: 'general' live inside a single "General" tile to keep the main list short.
+const GENERAL = { id: 'general', title: 'General', icon: '🗂️', desc: 'Date safety, GMT, insurance, backup, about' };
+let group = null;        // 'general' when that sub-list is open
+
+function tile(t, onclick) {
+  return el('button', { type: 'button', class: 'tool-tile', onclick },
+    el('span', { class: 'tool-icon' }, t.icon),
+    el('span', { class: 'tool-text' }, el('span', { class: 'tool-title' }, t.title), el('span', { class: 'tool-desc' }, t.desc)));
+}
+
 function renderHome() {
   const home = $('tools-home');
   home.innerHTML = '';
   const hidden = store.get().tools.hidden;
   const grid = el('div', { class: 'tool-grid' });
-  for (const t of TOOLS) {
-    if (t.hideable !== false && hidden.includes(t.id)) continue;
-    grid.append(el('button', { type: 'button', class: 'tool-tile', onclick: () => openTool(t.id) },
-      el('span', { class: 'tool-icon' }, t.icon),
-      el('span', { class: 'tool-text' }, el('span', { class: 'tool-title' }, t.title), el('span', { class: 'tool-desc' }, t.desc))));
+  if (group === 'general') {
+    for (const t of TOOLS) if (t.group === 'general') grid.append(tile(t, () => openTool(t.id)));
+    home.append(grid);
+    return;
   }
+  for (const t of TOOLS) {
+    if (t.group) continue;
+    if (t.hideable !== false && hidden.includes(t.id)) continue;
+    grid.append(tile(t, () => openTool(t.id)));
+  }
+  grid.append(tile(GENERAL, openGeneral));
   home.append(grid,
     el('button', { type: 'button', class: 'link-btn center-block', onclick: customise }, 'Show or hide tools'));
 }
 
+export function openGeneral() {
+  closeCurrent();
+  group = 'general';
+  $('tools-home').hidden = false;
+  document.querySelectorAll('.tool-panel').forEach((p) => { p.hidden = true; });
+  $('tools-title').textContent = GENERAL.title;
+  $('tools-back').hidden = false;
+  $('tools-back').textContent = '‹ Tools';
+  renderHome();
+  window.scrollTo(0, 0);
+  if (tabVisible) history.replaceState(null, '', '#tools/general');
+}
+
+function back() {
+  const t = current && TOOLS.find((x) => x.id === current);
+  if (t && t.group === 'general') openGeneral();
+  else goHome();
+}
+
 function customise() {
   const hidden = new Set(store.get().tools.hidden);
-  const boxes = TOOLS.filter((t) => t.hideable !== false).map((t) => {
+  const boxes = TOOLS.filter((t) => t.hideable !== false && !t.group).map((t) => {
     const cb = el('input', { type: 'checkbox', class: 'check', checked: !hidden.has(t.id) });
     cb.dataset.id = t.id;
     return el('label', { class: 'field check-field' }, cb, el('span', {}, `${t.icon} ${t.title}`));
@@ -66,6 +100,7 @@ export function openTool(id) {
   document.querySelectorAll('.tool-panel').forEach((p) => { p.hidden = p.dataset.tool !== t.panel; });
   $('tools-title').textContent = t.title;
   $('tools-back').hidden = false;
+  $('tools-back').textContent = t.group === 'general' ? '‹ General' : '‹ Tools';
   window.scrollTo(0, 0);
   if (t.show) t.show();
   if (location.hash !== '#tools/' + id) history.replaceState(null, '', '#tools/' + id);
@@ -80,6 +115,7 @@ function closeCurrent() {
 
 export function goHome() {
   closeCurrent();
+  group = null;
   $('tools-home').hidden = false;
   document.querySelectorAll('.tool-panel').forEach((p) => { p.hidden = true; });
   $('tools-title').textContent = 'Tools';
@@ -129,15 +165,17 @@ function renderAbout() {
 
 export function initTools(version) {
   appVersion = version;
-  $('tools-back').addEventListener('click', goHome);
-  registerTool({ id: 'settings', title: 'Backup & settings', icon: '💾', desc: 'Back up, restore, currency', panel: 'settings', show: renderSettings, hideable: false, order: 90 });
-  registerTool({ id: 'about', title: 'About', icon: 'ℹ️', desc: `${APP_NAME} & ${CHANNEL_NAME}`, panel: 'about', show: renderAbout, hideable: false, order: 95 });
+  $('tools-back').addEventListener('click', back);
+  registerTool({ id: 'settings', title: 'Backup & settings', icon: '💾', desc: 'Back up, restore, currency', panel: 'settings', show: renderSettings, hideable: false, group: 'general', order: 90 });
+  registerTool({ id: 'about', title: 'About', icon: 'ℹ️', desc: `${APP_NAME} & ${CHANNEL_NAME}`, panel: 'about', show: renderAbout, hideable: false, group: 'general', order: 95 });
 }
 
 export function showTools(sub) {
   tabVisible = true;
-  if (sub && TOOLS.some((t) => t.id === sub)) openTool(sub);
+  if (sub === 'general') openGeneral();
+  else if (sub && TOOLS.some((t) => t.id === sub)) openTool(sub);
   else if (current) openTool(current);
+  else if (group === 'general') openGeneral();
   else goHome();
 }
 
