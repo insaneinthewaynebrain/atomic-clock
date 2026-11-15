@@ -544,3 +544,15 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 @media (min-width: 700px) {
   .tool-panel[data-tool="setting"] > div, .tool-panel[data-tool="moon"] > div, .tool-panel[data-tool="gmt"] > div { max-width: 640px; margin: 0 auto; }
 }
+
+/* ================= Stage 5: Insurance ================= */
+#print-view { position: fixed; inset: 0; z-index: 100; background: #fff; display: flex; flex-direction: column; }
+.print-bar { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding: calc(var(--safe-top) + 8px) 12px 8px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.print-bar .btn:first-child { margin-right: auto; }
+.print-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+.btn:disabled { opacity: .45; }
+@media print {
+  body > *:not(#print-view) { display: none !important; }
+  #print-view { position: static; }
+  .print-bar { display: none; }
+}
