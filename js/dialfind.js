@@ -216,6 +216,31 @@ export function traceBezel(img, rough) {
   }
   if (!fit || fit.b / fit.a < 0.65 || fit.a > rough.r * 1.45 || fit.b < rough.r * 0.55) return null;
   if (Math.hypot(fit.cx - rough.cx, fit.cy - rough.cy) > rough.r * 0.25) return null;
+  // Roundness: share of all rays whose edge lies within 3% of the fitted oval. A round bezel follows it all the
+  // way; a square or octagonal case (G-Shock) bulges at the corners and falls off it on many rays.
+  let on = 0;
+  for (const ray of rays) {
+    const c = Math.cos(fit.angle), sn = Math.sin(fit.angle);
+    const u = ray.c * c + ray.s * sn, v = -ray.c * sn + ray.s * c;
+    const rr = 1 / Math.hypot(u / fit.a, v / fit.b);                 // oval's radius along this ray (from its centre)
+    const ox = fit.cx - rough.cx, oy = fit.cy - rough.cy;
+    if (ray.peaks.some((r) => Math.abs(Math.hypot(ray.c * r - ox, ray.s * r - oy) - rr) <= rr * 0.03)) on++;
+  }
+  fit.round = on / R;
+  // Squareness: how strongly the edge's distance from the centre swings four times per turn (corners of a square
+  // or octagon). A tilted round bezel swings twice (an oval) — that's allowed for by measuring against the oval.
+  let cs4 = 0, sn4 = 0, n4 = 0;
+  for (const ray of rays) {
+    const c = Math.cos(fit.angle), sn = Math.sin(fit.angle);
+    const u = ray.c * c + ray.s * sn, v = -ray.c * sn + ray.s * c;
+    const rr = 1 / Math.hypot(u / fit.a, v / fit.b);
+    let best = null;
+    for (const r of ray.peaks) { const d = Math.abs(r - rr) / rr; if (d <= 0.2 && (!best || d < best.d)) best = { d, r }; }
+    if (!best) continue;
+    const rel = best.r / rr - 1, th = Math.atan2(ray.s, ray.c);
+    cs4 += rel * Math.cos(4 * th); sn4 += rel * Math.sin(4 * th); n4++;
+  }
+  fit.square = n4 ? (2 * Math.hypot(cs4, sn4)) / n4 : 0;
   return fit;
 }
 

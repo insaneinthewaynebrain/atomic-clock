@@ -296,6 +296,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
 
     // Live dial finding (Circle guide): look in and around the guide a few times a second.
     const LOOK = 160;
+    const SQUARE = 0.016;        // four-fold bulge above this (measured at capture size) = a cornered case, not a round bezel; from 29 real photos
     function lookForDial() {
       if (done || busy || cur !== 'circle') { ring.hidden = true; cancelHold(); return; }
       const [vw, vh] = natural();
@@ -405,7 +406,11 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
             let oval = null;
             try { oval = traceBezel(hg.getImageData(0, 0, HALF, HALF), { cx: cx / 2, cy: cy / 2, r: found.r * (S / LOOK) / 2 }); } catch (e) { oval = null; }
             let face;
-            if (oval) {
+            if (oval && oval.square >= SQUARE) {
+              // Cornered, not round (e.g. a G-Shock): don't snap to it — use your own framing (on auto too).
+              main = mine;
+            }
+            if (main) { /* decided above */ } else if (oval) {
               const c = document.createElement('canvas'); c.width = ow; c.height = oh;
               const g = c.getContext('2d');
               if (!cutout) { g.fillStyle = '#000'; g.fillRect(0, 0, ow, oh); }
@@ -418,8 +423,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
               g.drawImage(shot, 0, 0);
               face = c;
             } else face = cropFrom(cx - r, cy - r, 2 * r);
-            main = { blob: await toBlob(face, type), shape: cur, how: 'snap' };
-            alt = mine;
+            if (!main) { main = { blob: await toBlob(face, type), shape: cur, how: 'snap' }; alt = mine; }
           } else if (auto) {
             // Taken automatically but the dial can't be confirmed in this very frame: don't save a bad crop, keep waiting.
             busy = false; shutter.disabled = false; dlg.classList.remove('flash'); steadyRun = 0;
@@ -501,6 +505,8 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
         note.textContent = pick.how === 'snap' ? '✓ Snapped to the dial' : 'Your framing';
         drawFace();
       } }, 'Use my framing instead') : null;
+      const squareBrand = pick.shape === 'circle' && ['G-Shock', 'Casio'].includes(result?.fields?.brand);
+      const sqTip = squareBrand ? el('p', { class: 'muted small' }, 'Square-cased watch? Tap Retake and choose the Square shape for a better fit.') : null;
       const note = el('div', { class: 'cam-pv-note' }, main.how === 'snap' ? '✓ Snapped to the dial' : main.shape === 'cutout' ? '✓ Cut out from the photo' : '');
       const close = () => { if (url) URL.revokeObjectURL(url); clearTimeout(go); };
       const goBtn = el('button', { type: 'button', class: 'btn primary', onclick: () => { close(); finish({ blob: pick.blob, shape: pick.shape, scan: result }); } }, result ? 'Continue' : 'Use picture');
@@ -511,7 +517,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       let go = main.auto ? setTimeout(() => goBtn.click(), AUTO_S * 1000) : null;
       const stopAuto = () => { if (!go) return; clearTimeout(go); go = null; bar?.remove(); autoNote?.remove(); };
       const pv = el('div', { class: 'cam-preview' },
-        faceBox, note, swap,
+        faceBox, note, swap, sqTip,
         info || el('p', { class: 'muted' }, 'Is the whole watch head in the picture?'),
         el('div', { class: 'cam-msg-btns' },
           el('button', { type: 'button', class: 'btn', onclick: () => { close(); pv.remove(); busy = false; shutter.disabled = false; dlg.classList.remove('flash'); if (!still) video.play().catch(() => {}); } }, 'Retake'),
