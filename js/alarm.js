@@ -285,26 +285,62 @@ function updateClockLine() {
   if (n) line.textContent = `${n.a.light ? '🌅' : '⏰'} ${n.a.snoozeAt ? 'Snoozed until' : 'Alarm'} ${hhmm(n.at)} (in ${inText(n.at - now())}) · keep the app open`;
 }
 
-/* ---------- Sunrise location ---------- */
-function chooseSunPlace(after) {
-  const useGps = async () => {
-    toast('Finding your location…');
-    try {
-      const pos = await getPosition();
+/* ---------- Sunrise location ----------
+ By default the sunrise follows the phone: its location is refreshed whenever the app opens
+ (if location access is already allowed), so travelling changes the sunrise automatically. */
+const km = (a, b) => {
+  const r = Math.PI / 180, x = (b.lon - a.lon) * r * Math.cos(((a.lat + b.lat) / 2) * r), y = (b.lat - a.lat) * r;
+  return Math.sqrt(x * x + y * y) * 6371;
+};
+
+/** Ask the phone where it is now. Call from a tap the first time (iPhone asks permission). */
+async function locatePhone({ quiet = false } = {}) {
+  if (!quiet) toast('Finding where your phone is…');
+  try {
+    const pos = await getPosition();
+    const old = d().sunPlace;
+    let name = old?.gps ? old.name : '', region = old?.gps ? old.region : '';
+    if (!old?.gps || km(old, pos) > 3 || !name) {
       const town = await nearestTown(pos.lat, pos.lon);
-      d().sunPlace = { name: town.town || 'Your location', region: town.region || '', lat: pos.lat, lon: pos.lon, gps: true };
-      store.save(); toast('Location saved'); after?.();
-    } catch (e) { toast(e.message || 'Could not get your location'); after?.(); }
-  };
+      name = town.town || 'Your location'; region = town.region || '';
+    }
+    d().sunPlace = { name, region, lat: pos.lat, lon: pos.lon, gps: true, at: Date.now() };
+    store.save();
+    if (!quiet) toast(`Using sunrise for ${name}`);
+    return true;
+  } catch (e) {
+    if (!quiet) toast(e.message || 'Could not find your location', 5000);
+    return false;
+  }
+}
+
+/** Quietly refresh the phone's location, only if permission was already given. */
+async function refreshPhoneLocation() {
+  const p = d().sunPlace;
+  if (p && !p.gps) return;                                  // the user chose a fixed place
+  if (p?.at && Date.now() - p.at < 30 * 60000) return;      // fresh enough
+  try {
+    const st = await navigator.permissions?.query({ name: 'geolocation' });
+    if (st?.state !== 'granted') return;
+  } catch (e) { return; }
+  if (await locatePhone({ quiet: true }) && panelOpen && view() === 'alarms') render();
+}
+
+function chooseSunPlace(after) {
   placeSearchModal({
-    title: 'Where do you wake up?',
+    title: 'Choose a place instead',
     onPick: (p) => { d().sunPlace = { name: p.name, region: placeLabel(p), lat: p.lat, lon: p.lon }; store.save(); after?.(); },
-    extraActions: [{ label: '📍 Use my location', onClick: () => { setTimeout(useGps, 0); } }],
+    extraActions: [{ label: '📍 Use my phone’s location', onClick: () => { setTimeout(async () => { await locatePhone(); after?.(); }, 0); } }],
     onCancel: () => after?.(),
   });
 }
 
 function placeText(p) { return p ? `${p.name}${p.region ? ', ' + p.region : ''}` : 'not set'; }
+function placeLine(p) {
+  if (!p) return 'Location not found yet';
+  if (p.gps) return `Your phone is in ${placeText(p)}`;
+  return `Using ${placeText(p)}${p.fromWeather ? ' (from Weather)' : ' (a place you chose)'}`;
+}
 
 /* ---------- Editor ---------- */
 const offText = (m) => (m === 0 ? 'At sunrise' : `${Math.abs(m)} min ${m < 0 ? 'before' : 'after'} sunrise`);
@@ -337,7 +373,7 @@ function editAlarm(bank, a, saved) {
     readDraft();
     const p = sunPlace();
     sunPreview.innerHTML = '';
-    if (!p) { sunPreview.append(el('span', { class: 'warn-text' }, 'Set your location so the alarm can follow the sunrise.')); return; }
+    if (!p) { sunPreview.append(el('span', { class: 'warn-text' }, 'Tap “Update” so the alarm can find where your phone is.')); return; }
     const tmr = new Date(now()); tmr.setDate(tmr.getDate() + 1);
     const r = sunriseOn(tmr, p);
     if (!r) { sunPreview.append(el('span', { class: 'warn-text' }, 'The sun doesn’t rise there at this time of year — choose a set time instead.')); return; }
@@ -348,13 +384,19 @@ function editAlarm(bank, a, saved) {
   const sunBox = el('div', { class: 'mode-box' },
     el('label', { class: 'field' }, el('span', {}, 'Ring'), offSel),
     el('label', { class: 'field check-field' }, latestOn, el('span', {}, 'But never later than')), latestIn,
-    el('div', { class: 'sun-loc' }, el('span', {}, '📍 ', placeText(sunPlace())),
-      el('button', { type: 'button', class: 'btn sm', onclick: () => { readDraft(); chooseSunPlace(() => editAlarm(bank, a, draft)); } }, sunPlace() ? 'Change' : 'Set location')),
+    el('div', { class: 'sun-loc' }, el('span', {}, '📍 ', placeLine(sunPlace())),
+      el('button', { type: 'button', class: 'btn sm', onclick: async () => { readDraft(); await locatePhone(); editAlarm(bank, a, draft); } }, 'Update')),
+    el('button', { type: 'button', class: 'link-btn', onclick: () => { readDraft(); chooseSunPlace(() => editAlarm(bank, a, draft)); } }, 'Choose a place instead'),
     sunPreview);
-  const segBtns = [['time', 'Set time'], ['sunrise', '☀ Real sunrise']].map(([m, l]) => {
-    const b = el('button', { type: 'button', class: 'seg-btn' + (draft.mode === m ? ' active' : ''), onclick: () => {
+  const segBtns = [['time', 'Set time'], ['sunrise', '📍 Sunrise where I am']].map(([m, l]) => {
+    const b = el('button', { type: 'button', class: 'seg-btn' + (draft.mode === m ? ' active' : ''), onclick: async () => {
       draft.mode = m; segBtns.forEach((x) => x.classList.toggle('active', x === b));
       timeBox.hidden = m !== 'time'; sunBox.hidden = m !== 'sunrise'; updSun();
+      // First time: find the phone straight away (this tap lets the iPhone ask permission).
+      const p = d().sunPlace;
+      if (m === 'sunrise' && (!p || p.fromWeather || (p.gps && Date.now() - (p.at || 0) > 30 * 60000))) {
+        readDraft(); if (await locatePhone()) editAlarm(bank, a, draft);
+      }
     } }, l);
     return b;
   });
@@ -384,7 +426,7 @@ function editAlarm(bank, a, saved) {
     className: 'tall',
     onClose: stopPreview,
     content: [
-      el('div', { class: 'seg' }, segBtns),
+      el('div', { class: 'seg seg-wrap' }, segBtns),
       timeBox, sunBox,
       el('div', { class: 'light-box' },
         el('div', { class: 'light-head' }, el('span', {}, '🌅 Sunrise wake light'), lightOn),
@@ -472,12 +514,13 @@ function renderAlarms(box) {
     el('div', { class: 'card sun-card' },
       el('h2', { class: 'card-title' }, '🌅 Sunrise wake-up'),
       el('p', { class: 'small' }, 'Sunrise alarm clocks copy the dawn: the light builds slowly for half an hour or so before the alarm. Gradual morning light is the body’s natural cue to wake — it helps switch off the sleep hormone melatonin and lift cortisol, so you surface from sleep gently instead of being jolted awake.'),
-      el('p', { class: 'small' }, 'Each alarm can use the wake light, and can ring at a ', el('b', {}, 'set time'), ' or at the ', el('b', {}, 'real sunrise'), ' where you are (with “never later than” for dark winter mornings).'),
+      el('p', { class: 'small' }, 'Each alarm can use the wake light, and can ring at a ', el('b', {}, 'set time'), ' or at ', el('b', {}, 'sunrise where your phone is'), ' — if you travel, it follows you. Add “never later than” for dark winter mornings.'),
       el('ul', { class: 'plain-list small muted' },
         el('li', {}, 'Before bed, turn the screen brightness up and switch off Night Shift / Auto-Brightness if you can — the screen stays black until the sunrise starts.'),
         el('li', {}, 'Stand the phone facing you, a little way from your pillow.')),
-      el('div', { class: 'sun-loc' }, el('span', {}, '📍 Sunrise location: ', el('b', {}, placeText(p)), p?.fromWeather ? ' (from Weather)' : ''),
-        el('button', { type: 'button', class: 'btn sm', onclick: () => chooseSunPlace(render) }, p && !p.fromWeather ? 'Change' : 'Set')),
+      el('div', { class: 'sun-loc' }, el('span', {}, '📍 ', el('b', {}, placeLine(p))),
+        el('button', { type: 'button', class: 'btn sm', onclick: async () => { await locatePhone(); render(); } }, 'Update')),
+      el('button', { type: 'button', class: 'link-btn', onclick: () => chooseSunPlace(render) }, 'Choose a place instead'),
       p ? sunToday(p) : null,
       el('button', { type: 'button', class: 'btn wide', onclick: previewSunrise }, 'Preview the sunrise (1 minute)')));
 }
@@ -538,6 +581,7 @@ function render() {
 function show() {
   panelOpen = true;
   render();
+  refreshPhoneLocation();
   clearInterval(liveTimer);
   liveTimer = setInterval(() => { if (liveUpdate) liveUpdate(); }, 100);
 }
@@ -549,6 +593,8 @@ export function register({ registerTool }) {
   if (slot && !$('alarm-line')) slot.after(el('button', { type: 'button', id: 'alarm-line', class: 'alarm-line', hidden: true, onclick: () => { d().alarmView = 'alarms'; location.hash = 'tools/alarm'; } }));
   timers.init(() => { if (panelOpen) render(); });
   refreshQuotes();
+  refreshPhoneLocation();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshPhoneLocation(); });
   setInterval(check, 500);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
   updateClockLine();
