@@ -290,6 +290,9 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       if (!found) { if (!snap || Date.now() - snap.t > 900) { snap = null; ring.hidden = true; } return; }
       const k = side / LOOK;
       const nx = area.x + found.cx * k, ny = area.y + found.cy * k, nr = found.r * k * 1.05;   // a little outside the bezel, so it's never clipped
+      // You framed the watch to fill the guide, so a real bezel is about the guide's size. A "dial" much smaller
+      // (a ring inside the lettering) or much bigger (the case and strap) isn't it: keep your framing instead.
+      if (nr < (f.w / 2) * 0.8 || nr > (f.w / 2) * 1.45) { if (!snap || Date.now() - snap.t > 900) { snap = null; ring.hidden = true; } return; }
       // Smooth so the ring doesn't jitter.
       snap = snap ? { x: snap.x * 0.5 + nx * 0.5, y: snap.y * 0.5 + ny * 0.5, r: snap.r * 0.5 + nr * 0.5, t: Date.now() } : { x: nx, y: ny, r: nr, t: Date.now() };
       Object.assign(ring.style, { left: snap.x - snap.r + 'px', top: snap.y - snap.r + 'px', width: snap.r * 2 + 'px', height: snap.r * 2 + 'px' });
