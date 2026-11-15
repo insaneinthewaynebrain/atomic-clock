@@ -10,7 +10,8 @@ const SILENT_WAV = 'data:audio/wav;base64,UklGRmQGAABXQVZFZm10IBAAAAABAAEAQB8AAI
 let audio = null, silentEl = null, unlocked = false;
 let lastScheduled = 0, lastStage = null;
 const $ = (id) => document.getElementById(id);
-const mode = () => store.get().countdown || 'off';    // 'off' | 'lights' | 'beeps'
+// Lights always run; this only switches the beeps. ('lights' from older versions = beeps off.)
+const mode = () => (store.get().countdown === 'beeps' ? 'beeps' : 'off');
 
 /* ---------- Sound ---------- */
 // Must run inside a tap. Makes Web Audio play even with the iPhone's silent switch on.
@@ -58,14 +59,12 @@ export function tickCountdown() {
   // Label
   const nd = new Date(next);
   const label = $('cd-label');
-  if (label) label.textContent = m === 'off' ? '' : `Next minute ${pad(nd.getHours())}:${pad(nd.getMinutes())}:00`;
+  if (label) label.textContent = `Next minute ${pad(nd.getHours())}:${pad(nd.getMinutes())}:00`;
 
   // Lights: stage 1..5 in the last 5 seconds, 6 = on the minute (flash for 0.8 s)
   let stage = 0;
-  if (m !== 'off') {
-    if (left <= 5) stage = 6 - Math.ceil(left);   // 5→1 … 1→5
-    if (sinceMinute < 0.8) stage = 6;
-  }
+  if (left <= 5) stage = 6 - Math.ceil(left);     // 5→1 … 1→5
+  if (sinceMinute < 0.8) stage = 6;
   if (stage !== lastStage) {
     lastStage = stage;
     const lights = box.querySelectorAll('.sl');
@@ -117,7 +116,6 @@ function drawControls() {
   const seg = $('cd-seg');
   if (!seg) return;
   seg.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === mode()));
-  $('countdown').classList.toggle('off', mode() === 'off');
   lastStage = null;
   updateHint();
 }
@@ -125,8 +123,8 @@ function drawControls() {
 export function initCountdown() {
   const anchor = $('clk-big');
   if (!anchor || $('countdown')) return;
-  const seg = el('div', { id: 'cd-seg', class: 'seg seg3 cd-seg', role: 'group', 'aria-label': 'Minute countdown' },
-    [['off', 'Off'], ['lights', 'Lights'], ['beeps', '+ Beeps']].map(([v, l]) => {
+  const seg = el('div', { id: 'cd-seg', class: 'seg cd-seg', role: 'group', 'aria-label': 'Countdown beeps' },
+    [['off', '🔇 Beeps off'], ['beeps', '🔊 Beeps on']].map(([v, l]) => {
       const b = el('button', { type: 'button', class: 'seg-btn', onclick: () => setMode(v) }, l);
       b.dataset.v = v;
       return b;
@@ -137,13 +135,12 @@ export function initCountdown() {
   anchor.after(box);
   // Controls go under the time-zone line.
   const ctl = el('div', { class: 'cd-controls' },
-    el('div', { class: 'cd-title' }, '⏱ Minute countdown'),
     seg,
     el('button', { type: 'button', id: 'cd-hint', class: 'cd-hint', hidden: true, onclick: unlockAudio }),
     el('details', { class: 'cd-help' },
       el('summary', {}, 'How to set a watch to the second'),
       el('ol', { class: 'steps small' },
-        el('li', {}, 'Turn on the countdown (with beeps if you like). The lights fill over the last 5 seconds of each minute; five short pips, then a long pip exactly on the minute.'),
+        el('li', {}, 'The lights fill over the last 5 seconds of every minute and flash on the minute. Turn beeps on for five short pips and a long pip exactly on the minute.'),
         el('li', {}, 'Pull the crown out to the time-setting position. Most mechanical watches “hack”: the seconds hand stops. Stop it at 12.'),
         el('li', {}, 'Set the minute hand exactly on the next minute shown.'),
         el('li', {}, 'Push the crown in on the long pip / green flash.'),
