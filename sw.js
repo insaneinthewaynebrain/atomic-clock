@@ -1,14 +1,14 @@
 // Service worker: keeps the app working offline.
 // Online: always fetch the latest files from the network (so updates show straight away).
 // Offline: use the copies saved here.
-const VERSION = 'v8';
+const VERSION = 'v9';
 const CACHE = 'atomic-clock-' + VERSION;
 const SHELL = [
   './', './index.html', './styles.css', './manifest.webmanifest',
   './js/app.js', './js/store.js', './js/ui.js', './js/time.js', './js/clock.js',
   './js/tracker.js', './js/world.js', './js/weather.js', './js/currency.js',
   './js/config.js', './js/accuracy.js', './js/photos.js', './js/collection.js', './js/backup.js', './js/tools.js',
-  './js/wrist.js', './js/sharecard.js',
+  './js/wrist.js', './js/sharecard.js', './js/setting.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
 ];
 

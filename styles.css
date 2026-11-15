@@ -513,3 +513,34 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 .pos-rate.good { color: var(--green); } .pos-rate.mid { color: var(--amber); } .pos-rate.badr { color: var(--red); }
 .advice { font-size: 14px; margin: 8px 0 0; padding: 10px; border-radius: 10px; background: rgba(76,194,255,.08); border: 1px solid rgba(76,194,255,.3); }
 .share-preview { width: 100%; border-radius: 12px; display: block; }
+
+/* ================= Stage 4: Setting aids, moon, GMT ================= */
+.clock-zone { margin-top: 6px; font-size: 13px; font-weight: 700; color: var(--red); }
+.zone { margin-top: 16px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line); font-size: 14px; }
+.zone b { display: block; margin-bottom: 4px; font-size: 15px; }
+.zone.ok { border-color: rgba(52,211,153,.5); background: rgba(52,211,153,.07); } .zone.ok b { color: var(--green); }
+.zone.bad { border-color: rgba(248,113,113,.6); background: rgba(248,113,113,.1); } .zone.bad b { color: var(--red); }
+.set-card { text-align: center; }
+.set-ring-wrap { position: relative; width: min(300px, 78vw); aspect-ratio: 1 / 1; margin: 6px auto 10px; }
+.set-ring svg { width: 100%; height: 100%; display: block; }
+.ring-bg { fill: none; stroke: var(--bg); stroke-width: 10; }
+.ring-fg { fill: none; stroke: var(--accent); stroke-width: 10; stroke-linecap: round; stroke-dasharray: 653.5; stroke-dashoffset: 0; }
+.set-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.set-target { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; color: #cfd6e4; }
+.set-left { font-size: clamp(56px, 20vw, 96px); font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.set-left.final { color: var(--amber); }
+.set-left.go { color: var(--green); }
+.steps { margin: 0; padding-left: 20px; }
+.steps li { margin: 6px 0; }
+.moon-card { text-align: center; }
+.moon-pic { width: 180px; margin: 0 auto; }
+.moon-svg { width: 100%; display: block; }
+.moon-name { font-size: 22px; font-weight: 800; margin: 8px 0 12px; }
+.moon-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; text-align: left; }
+.gmt-dial { width: min(320px, 84vw); margin: 12px auto 6px; }
+.gmt-svg { width: 100%; display: block; }
+.gmt-info { text-align: center; font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+.gmt-big { font-size: 34px; font-weight: 800; color: var(--red); font-variant-numeric: tabular-nums; }
+@media (min-width: 700px) {
+  .tool-panel[data-tool="setting"] > div, .tool-panel[data-tool="moon"] > div, .tool-panel[data-tool="gmt"] > div { max-width: 640px; margin: 0 auto; }
+}
