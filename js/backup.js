@@ -35,7 +35,7 @@ async function doExport(withPhotos) {
   const out = store.exportData();
   if (withPhotos) {
     toast('Preparing photos…', 4000);
-    const ids = store.get().watches.flatMap((w) => w.photos || []);
+    const ids = store.get().watches.flatMap((w) => [w.face, ...(w.photos || [])].filter(Boolean));
     out.photos = await exportPhotos(ids);
   }
   const blob = new Blob([JSON.stringify(out, null, withPhotos ? 0 : 2)], { type: 'application/json' });
@@ -49,7 +49,7 @@ async function doExport(withPhotos) {
 }
 
 export function exportBackup() {
-  const nPhotos = store.get().watches.reduce((n, w) => n + (w.photos?.length || 0), 0);
+  const nPhotos = store.get().watches.reduce((n, w) => n + (w.photos?.length || 0) + (w.face ? 1 : 0), 0);
   if (!nPhotos) { doExport(false); return; }
   openModal({
     title: 'Include photos?',

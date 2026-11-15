@@ -40,7 +40,8 @@ export async function drawCard(w) {
 
   // Photo (cover-cropped) or a placeholder
   const PH = 640;
-  const url = w.photos?.length ? await photoUrl(w.photos[0], 'full') : null;
+  const pid = w.face || w.photos?.[0];
+  const url = pid ? await photoUrl(pid, 'full') : null;
   const img = url ? await loadImg(url) : null;
   ctx.save();
   roundRect(ctx, 48, 48, W - 96, PH, 36); ctx.clip();

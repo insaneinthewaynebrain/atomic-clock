@@ -21,7 +21,8 @@ async function buildHtml({ serials, photos, owner }) {
     const v = w.value != null ? Number(w.value) : p;
     if (p != null) paid += p;
     if (v != null) value += v;
-    const img = photos && w.photos?.length ? await photoDataUrl(w.photos[0], 'thumb') : null;
+    const pid = w.face || w.photos?.[0];
+    const img = photos && pid ? await photoDataUrl(pid, 'thumb') : null;
     rows.push(`<tr>
       ${photos ? `<td class="ph">${img ? `<img src="${img}" alt="">` : ''}</td>` : ''}
       <td><b>${esc(w.brand || '')}</b><br>${esc(w.model || w.name)}${w.nickname ? `<br><span class="m">“${esc(w.nickname)}”</span>` : ''}</td>

@@ -146,7 +146,8 @@ function pickWatch(title, onPick, filter = () => true) {
     title, className: 'tall',
     content: el('div', { class: 'pick-list' }, list.map((w) => {
       const img = el('div', { class: 'pick-photo' });
-      if (w.photos?.length) { const i = el('img', { alt: '' }); fillImg(i, w.photos[0]); img.append(i); } else img.append('⌚');
+      const pid = w.face || w.photos?.[0];
+      if (pid) { const i = el('img', { alt: '' }); fillImg(i, pid); img.append(i); } else img.append('⌚');
       return el('button', { type: 'button', class: 'pick-item', onclick: () => { m.close(); onPick(w); } },
         img, el('span', { class: 'pick-name' }, w.name), el('span', { class: 'pick-dot', style: `background:${colourOf(w.id)}` }));
     })),

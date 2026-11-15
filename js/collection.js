@@ -4,6 +4,7 @@ import * as store from './store.js';
 import { el, openModal, confirmModal, toast } from './ui.js';
 import { addPhoto, deletePhoto, fillImg } from './photos.js';
 import { watchStats, fmtRate, grade } from './accuracy.js';
+import { captureFace } from './camera.js';
 
 /* ---------- Reference lists ---------- */
 export const MOVEMENTS = [
@@ -48,6 +49,48 @@ export function daysWorn(id) {
     for (let i = 0; c.getTime() <= end && i < 400; i++) { days.add(c.toDateString()); c.setDate(c.getDate() + 1); }
   }
   return days.size;
+}
+
+/** Wear in the last 12 months: { days: distinct days worn, ms: total time on the wrist }. */
+export function wearPastYear(id) {
+  const from = Date.now() - 365 * 86400000;
+  const days = new Set();
+  let ms = 0;
+  for (const e of d().wear) {
+    if (e.watchId !== id) continue;
+    const end = e.off || Date.now();
+    if (end <= from) continue;
+    const start = Math.max(e.on, from);
+    ms += end - start;
+    const c = new Date(start); c.setHours(0, 0, 0, 0);
+    for (let i = 0; c.getTime() <= end && i < 400; i++) { days.add(c.toDateString()); c.setDate(c.getDate() + 1); }
+  }
+  return { days: days.size, ms };
+}
+
+/**
+ * The watch's "face" — its profile picture (just the watch head, framed with the camera guide).
+ * Falls back to the main photo, then to a placeholder.
+ */
+export function faceEl(w, kind = 'thumb', cls = '') {
+  const shape = w.face ? (w.faceShape || 'circle') : 'circle';
+  const box = el('div', { class: `face face-${shape} ${cls}` });
+  const id = w.face || w.photos?.[0];
+  if (id) { const i = el('img', { alt: w.name || 'Watch', loading: 'lazy' }); fillImg(i, id, kind); box.append(i); }
+  else box.append(el('span', { class: 'face-ph' }, '⌚'));
+  return box;
+}
+
+/** Add-a-watch flow: camera first (face picture), then the details form. */
+export async function addWatch(status = 'owned') {
+  const res = await captureFace({ title: 'Add a watch', allowSkip: true });
+  if (!res) return;
+  let face = null;
+  if (res.blob) {
+    try { face = { id: await addPhoto(res.blob), shape: res.shape }; }
+    catch (e) { toast(e.message || 'Could not save the picture'); }
+  }
+  openWatchEditor(null, { status, face });
 }
 
 function changed() { store.save(); store.emit('watches'); }
@@ -143,6 +186,7 @@ export function openWatchEditor(watch, opts = {}) {
   const added = [];        // photos added during this edit (deleted again on cancel)
   const removed = [];      // photos removed during this edit (deleted on save)
   let saved = false;
+  if (opts.face) { w.face = opts.face.id; w.faceShape = opts.face.shape; added.push(opts.face.id); }
 
   const form = el('div', { class: 'wform' });
   form.append(el('datalist', { id: 'brand-list' }, BRANDS.map((b) => el('option', { value: b }))));
@@ -156,6 +200,29 @@ export function openWatchEditor(watch, opts = {}) {
   });
   statusSel.append(...statusBtns);
   form.append(statusSel);
+
+  // Face picture (the watch's profile picture, taken with the camera guide)
+  const faceBox = el('div', { class: 'face-edit' });
+  const drawFace = () => {
+    faceBox.innerHTML = '';
+    faceBox.append(faceEl(w.face ? w : { name: '', photos: [] }, 'thumb', 'face-md'),
+      el('div', { class: 'face-edit-btns' },
+        el('p', { class: 'muted small' }, w.face ? 'This picture is how the watch shows in your Watch Box.' : 'Take a picture of just the watch head so it’s instantly recognisable in your Watch Box.'),
+        el('button', { type: 'button', class: 'btn sm', onclick: async () => {
+          const res = await captureFace({ title: w.name || 'Face picture', shape: w.faceShape });
+          if (!res || !res.blob) return;
+          try {
+            const id = await addPhoto(res.blob);
+            added.push(id);
+            if (w.face) removed.push(w.face);
+            w.face = id; w.faceShape = res.shape;
+            drawFace();
+          } catch (e) { toast(e.message || 'Could not save the picture'); }
+        } }, w.face ? '📷 Retake' : '📷 Take face picture'),
+        w.face ? el('button', { type: 'button', class: 'btn sm', onclick: () => { removed.push(w.face); w.face = null; drawFace(); } }, 'Remove') : null));
+  };
+  drawFace();
+  form.append(el('h3', { class: 'sub-title' }, 'Face picture'), faceBox);
 
   // Photos
   const photoRow = el('div', { class: 'photo-row' });
@@ -180,7 +247,7 @@ export function openWatchEditor(watch, opts = {}) {
     }
   });
   drawPhotos();
-  form.append(el('h3', { class: 'sub-title' }, 'Photos'), photoRow, fileIn);
+  form.append(el('h3', { class: 'sub-title' }, 'More photos'), photoRow, fileIn);
 
   // Field groups
   const groups = [];
@@ -230,24 +297,30 @@ export function openWatchEditor(watch, opts = {}) {
           if (!vals.name) { toast('Please give the watch a name'); nameIn.focus(); return false; }
           saved = true;
           for (const id of removed) deletePhoto(id).catch(() => {});
+          const face = { face: w.face || null, faceShape: w.face ? w.faceShape : null };
           if (isNew) {
-            const nw = { id: store.uid(), runs: [], added: Date.now(), ...vals, status: w.status, photos: w.photos };
+            const nw = { id: store.uid(), runs: [], added: Date.now(), ...vals, status: w.status, photos: w.photos, ...face };
             d().watches.push(nw);
             if (opts.select || nw.status === 'owned') d().selectedWatchId = nw.id;
           } else {
-            Object.assign(watch, vals, { status: w.status, photos: w.photos });
+            Object.assign(watch, vals, { status: w.status, photos: w.photos }, face);
           }
           changed();
           toast('Saved');
         },
       },
     ],
-    onClose: () => { if (!saved) for (const id of added) deletePhoto(id).catch(() => {}); },
+    onClose: () => {
+      if (!saved) {
+        for (const id of added) deletePhoto(id).catch(() => {});
+        if (isNew && opts.face) toast('Watch not added');
+      }
+    },
   });
 }
 
 export async function removeWatch(w) {
-  for (const id of w.photos || []) await deletePhoto(id).catch(() => {});
+  for (const id of [w.face, ...(w.photos || [])].filter(Boolean)) await deletePhoto(id).catch(() => {});
   const data = d();
   data.watches = data.watches.filter((x) => x.id !== w.id);
   data.wear = data.wear.filter((x) => x.watchId !== w.id);
@@ -279,7 +352,18 @@ export function openPhotoViewer(ids, start = 0) {
 export function openWatchDetail(w) {
   const st = watchStats(w);
   const box = el('div', { class: 'detail' });
-  if (w.photos?.length) {
+  if (w.face) {
+    const f = faceEl(w, 'full', 'face-lg');
+    f.addEventListener('click', () => openPhotoViewer([w.face, ...(w.photos || [])], 0));
+    box.append(f);
+    if (w.photos?.length) {
+      box.append(el('div', { class: 'photo-row' }, w.photos.map((id, i) => {
+        const t = el('img', { class: 'thumb', alt: 'Watch photo', onclick: () => openPhotoViewer([w.face, ...w.photos], i + 1) });
+        fillImg(t, id);
+        return t;
+      })));
+    }
+  } else if (w.photos?.length) {
     const main = el('img', { class: 'detail-photo', alt: w.name, onclick: () => openPhotoViewer(w.photos, 0) });
     fillImg(main, w.photos[0], 'full');
     box.append(main);
@@ -400,7 +484,8 @@ function sortList(list, sort) {
 
 function watchCard(w) {
   const img = el('div', { class: 'wc-photo' });
-  if (w.photos?.length) { const i = el('img', { alt: w.name, loading: 'lazy' }); fillImg(i, w.photos[0]); img.append(i); }
+  const pid = w.face || w.photos?.[0];
+  if (pid) { const i = el('img', { alt: w.name, loading: 'lazy' }); fillImg(i, pid); img.append(i); }
   else img.append(el('span', { class: 'wc-ph' }, '⌚'));
   let line = '';
   if (w.status === 'wishlist') line = w.targetPrice != null ? `Target ${money(w.targetPrice)}` : '';
@@ -413,6 +498,68 @@ function watchCard(w) {
       el('div', { class: 'wc-sub' }, subtitle(w) || movementLabel(w.movement) || ' '),
       line ? el('div', { class: 'wc-line' }, line) : null,
       w.status === 'owned' ? cardLines.map((f) => { const t = f(w); return t ? el('div', { class: 'wc-status ' + (t.cls || '') }, t.text) : null; }) : null));
+}
+
+/* ---------- The virtual watch box (Owned) ---------- */
+const DEFAULT_SLOTS = 6;
+
+/** green / amber / red per watch by time worn in the past year (most-worn third green, least-worn third red). */
+function wearTiers(list) {
+  const rows = list.map((w) => ({ id: w.id, ms: wearPastYear(w.id).ms }));
+  const out = {};
+  if (!rows.some((r) => r.ms > 0)) { for (const r of rows) out[r.id] = 'none'; return out; }
+  rows.sort((a, b) => b.ms - a.ms);
+  const n = rows.length;
+  rows.forEach((r, i) => {
+    const rank = rows.findIndex((x) => x.ms === r.ms);      // ties share the better colour
+    out[r.id] = r.ms <= 0 ? 'red' : n < 3 ? (rank === 0 ? 'green' : 'amber')
+      : rank < n / 3 ? 'green' : rank >= (2 * n) / 3 ? 'red' : 'amber';
+  });
+  return out;
+}
+
+function wornText(id) {
+  const { days, ms } = wearPastYear(id);
+  if (!ms) return 'Not worn in the past year';
+  if (ms < 86400000 && days <= 1) return `${Math.max(1, Math.round(ms / 3600000))} h worn · past year`;
+  return `${days} day${days === 1 ? '' : 's'} worn · past year`;
+}
+
+function slotEl(w, tier) {
+  const status = cardLines.map((f) => f(w)).find(Boolean);
+  const model = [w.model, w.reference].filter(Boolean).join(' · ') || (w.brand ? w.name.replace(w.brand, '').trim() : '') || w.name;
+  return el('button', { type: 'button', class: `slot tier-${tier}`, onclick: () => openWatchDetail(w), 'aria-label': w.name },
+    el('div', { class: 'slot-brand' }, w.brand || w.name),
+    el('div', { class: 'slot-cushion' }, faceEl(w)),
+    el('div', { class: 'slot-model' }, model),
+    el('div', { class: 'slot-worn' }, wornText(w.id)),
+    status ? el('div', { class: 'slot-status ' + (status.cls || '') }, status.text) : null);
+}
+
+function watchBox(all, shown, view, filtering) {
+  const tiers = wearTiers(all);
+  const slots = Math.max(view.slots || DEFAULT_SLOTS, all.length);
+  const inner = el('div', { class: 'wbox-lining' });
+  for (const w of shown) inner.append(slotEl(w, tiers[w.id]));
+  if (filtering && !shown.length) inner.append(el('p', { class: 'muted empty-note' }, 'No watches match your search.'));
+  if (!filtering) {
+    for (let i = all.length; i < slots; i++) {
+      inner.append(el('button', { type: 'button', class: 'slot empty', onclick: () => addWatch('owned'), 'aria-label': 'Add a watch' },
+        el('div', { class: 'slot-cushion' }, el('span', { class: 'slot-plus' }, '+')),
+        el('div', { class: 'slot-worn' }, i === all.length ? 'Add a watch' : 'Empty slot')));
+    }
+  }
+  const empties = slots - all.length;
+  const ctl = el('div', { class: 'wbox-ctl' },
+    el('button', { type: 'button', class: 'link-btn', onclick: () => { view.slots = slots + 2; store.save(); render(); } }, '+ Add 2 slots'),
+    empties > 0 ? el('button', { type: 'button', class: 'link-btn', onclick: () => { view.slots = Math.max(all.length, slots - Math.min(2, empties)); store.save(); render(); } }, 'Remove empty slots') : null);
+  const legend = all.some((w) => tiers[w.id] !== 'none')
+    ? el('div', { class: 'wbox-legend' }, el('span', { class: 'muted' }, 'Past 12 months:'),
+      el('span', {}, el('i', { class: 'tier-green' }), 'Most worn'), el('span', {}, el('i', { class: 'tier-amber' }), 'Between'), el('span', {}, el('i', { class: 'tier-red' }), 'Least worn'))
+    : (all.length ? el('div', { class: 'wbox-legend muted' }, 'Log what you wear and the slots turn green, amber or red by how much each watch is worn.') : null);
+  return el('div', { class: 'wbox-wrap' },
+    el('div', { class: 'wbox' }, el('div', { class: 'wbox-lid' }), inner),
+    legend, ctl);
 }
 
 export function render() {
@@ -430,35 +577,39 @@ export function render() {
     el('button', { type: 'button', class: 'seg-btn' + (view.tab === v ? ' active' : ''), onclick: () => { view.tab = v; store.save(); render(); } }, `${lab} (${counts[v]})`)));
   box.append(tabs);
 
-  let list = data.watches.filter((w) => (w.status || 'owned') === view.tab);
-  if (view.tab === 'owned') for (const f of boxSections) { const n = f(); if (n) box.append(n); }
-  if (view.tab === 'owned' && list.length) box.append(summary(list));
+  const owned = view.tab === 'owned';
+  const list = data.watches.filter((w) => (w.status || 'owned') === view.tab);
 
   const search = el('input', { type: 'search', class: 'input', placeholder: 'Search', value: view.q || '', 'aria-label': 'Search watches',
-    oninput: (e) => { view.q = e.target.value; drawGrid(); } });
-  const sort = el('select', { class: 'input', 'aria-label': 'Sort', onchange: (e) => { view.sort = e.target.value; store.save(); drawGrid(); } },
+    oninput: (e) => { view.q = e.target.value; draw(); } });
+  const sort = el('select', { class: 'input', 'aria-label': 'Sort', onchange: (e) => { view.sort = e.target.value; store.save(); draw(); } },
     SORTS.map(([v, lab]) => el('option', { value: v, selected: view.sort === v }, lab)));
-  box.append(el('div', { class: 'coll-tools' }, search, sort));
+  if (list.length) box.append(el('div', { class: 'coll-tools' }, search, sort));
 
   const addLabel = view.tab === 'wishlist' ? '+ Add to wishlist' : view.tab === 'sold' ? '+ Add a sold watch' : '+ Add a watch';
-  box.append(el('button', { type: 'button', class: 'btn primary wide', onclick: () => openWatchEditor(null, { status: view.tab }) }, addLabel));
+  box.append(el('button', { type: 'button', class: 'btn primary wide', onclick: () => addWatch(view.tab) }, addLabel));
 
-  const grid = el('div', { class: 'watch-grid' });
-  box.append(grid);
-  function drawGrid() {
-    grid.innerHTML = '';
+  const area = el('div', {});
+  box.append(area);
+  function draw() {
+    area.innerHTML = '';
     const q = (view.q || '').trim().toLowerCase();
     let shown = list;
     if (q) shown = list.filter((w) => [w.name, w.brand, w.model, w.reference, w.nickname, w.calibre].some((x) => x && String(x).toLowerCase().includes(q)));
     shown = sortList(shown, view.sort);
+    if (owned) { area.append(watchBox(list, shown, view, !!q)); return; }
+    const grid = el('div', { class: 'watch-grid' });
     if (!shown.length) {
       grid.append(el('p', { class: 'muted empty-note' }, q ? 'No watches match your search.' :
-        view.tab === 'owned' ? 'Your Watch Box is empty. Tap “Add a watch” to start — there’s room for as many as you like.' :
-          view.tab === 'wishlist' ? 'Nothing on your wishlist yet.' : 'No sold or traded watches yet.'));
+        view.tab === 'wishlist' ? 'Nothing on your wishlist yet.' : 'No sold or traded watches yet.'));
     }
     for (const w of shown) grid.append(watchCard(w));
+    area.append(grid);
   }
-  drawGrid();
+  draw();
+
+  if (owned) for (const f of boxSections) { const n = f(); if (n) box.append(n); }
+  if (owned && list.length) box.append(summary(list));
 }
 // Other stages can add banners at the top of the Watch Box screen.
 export const bannerHooks = [];
