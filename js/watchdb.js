@@ -30,7 +30,7 @@ export const BRANDS = [
 /** Words that point to a brand (and sometimes a model family) when read on a dial. */
 const DIAL_HINTS = [
   ['GRAND SEIKO', 'Grand Seiko'], ['PROSPEX', 'Seiko', 'Prospex'], ['PRESAGE', 'Seiko', 'Presage'], ['SEIKO', 'Seiko'],
-  ['OYSTER PERPETUAL', 'Rolex'], ['SUBMARINER', 'Rolex', 'Submariner'], ['GMT-MASTER', 'Rolex', 'GMT-Master II'], ['DAYTONA', 'Rolex', 'Cosmograph Daytona'],
+  ['OYSTER PERPETUAL', 'Rolex'], ['PERPETUAL DATE', 'Rolex'], ['SUPERLATIVE CHRONOMETER', 'Rolex'], ['SUPERLATIVE', 'Rolex'], ['SUBMARINER', 'Rolex', 'Submariner'], ['GMT-MASTER', 'Rolex', 'GMT-Master II'], ['DAYTONA', 'Rolex', 'Cosmograph Daytona'],
   ['SEA-DWELLER', 'Rolex', 'Sea-Dweller'], ['DATEJUST', 'Rolex', 'Datejust'], ['EXPLORER', 'Rolex', 'Explorer'], ['ROLEX', 'Rolex'],
   ['SPEEDMASTER', 'Omega', 'Speedmaster'], ['SEAMASTER', 'Omega', 'Seamaster'], ['AQUA TERRA', 'Omega', 'Seamaster Aqua Terra'],
   ['PLANET OCEAN', 'Omega', 'Seamaster Planet Ocean'], ['CONSTELLATION', 'Omega', 'Constellation'], ['OMEGA', 'Omega'],
@@ -43,6 +43,7 @@ const DIAL_HINTS = [
   ['PATEK PHILIPPE', 'Patek Philippe'], ['G-SHOCK', 'G-Shock'], ['CASIO', 'Casio'], ['TISSOT', 'Tissot'], ['LONGINES', 'Longines'],
   ['ORIENT STAR', 'Orient Star'], ['ORIENT', 'Orient'], ['BAMBINO', 'Orient', 'Bambino'], ['ORIS', 'Oris'], ['SINN', 'Sinn'],
   ['NOMOS', 'Nomos'], ['ZENITH', 'Zenith'], ['EL PRIMERO', 'Zenith', 'El Primero'], ['PANERAI', 'Panerai'], ['LUMINOR', 'Panerai', 'Luminor'],
+  ['MOONSWATCH', 'Swatch', 'MoonSwatch'], ['BIOCERAMIC', 'Swatch'], ['PROTECTION', 'G-Shock'], ['SHOCK RESIST', 'G-Shock'],
   ['CARTIER', 'Cartier'], ['BULOVA', 'Bulova'], ['TIMEX', 'Timex'], ['SWATCH', 'Swatch'], ['MIDO', 'Mido'], ['CERTINA', 'Certina'],
   ['RADO', 'Rado'], ['DOXA', 'Doxa'], ['SQUALE', 'Squale'], ['JUNGHANS', 'Junghans'], ['BREMONT', 'Bremont'], ['VOSTOK', 'Vostok'],
   ['CHRISTOPHER WARD', 'Christopher Ward'], ['C WARD', 'Christopher Ward'], ['BALTIC', 'Baltic'], ['LORIER', 'Lorier'], ['FARER', 'Farer'],
@@ -213,15 +214,25 @@ function lev(a, b) {
 // Brands people are most likely to photograph get a small nudge when a fragment fits several.
 const COMMON = new Set(['Seiko', 'Rolex', 'Omega', 'Casio', 'Citizen', 'Tudor', 'Tissot', 'Hamilton', 'Orient', 'Longines', 'TAG Heuer',
   'Breitling', 'G-Shock', 'Grand Seiko', 'Oris', 'Sekonda', 'Rotary', 'Timex', 'Bulova', 'Swatch', 'Accurist', 'Christopher Ward', 'Fossil']);
-const clean = (w) => String(w || '').toUpperCase()
-  .replace(/RN/g, 'M').replace(/VV/g, 'W').replace(/0/g, 'O').replace(/1/g, 'I').replace(/5/g, 'S').replace(/8/g, 'B').replace(/\$/g, 'S')
-  .replace(/[^A-Z]/g, '');
+// Misread digits are only turned back into letters inside words that are mostly letters ("SEIK0" → SEIKO),
+// never in numbers ("85" must not become "BS").
+const clean = (w) => {
+  const u = String(w || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();   // Söhne → SOHNE
+  const letters = (u.match(/[A-Z]/g) || []).length, digits = (u.match(/[0-9]/g) || []).length;
+  const v = letters >= 2 && letters > digits
+    ? u.replace(/RN/g, 'M').replace(/VV/g, 'W').replace(/0/g, 'O').replace(/1/g, 'I').replace(/5/g, 'S').replace(/8/g, 'B').replace(/\$/g, 'S')
+    : u;
+  return v.replace(/[^A-Z]/g, '');
+};
 
 // Ordinary words printed on dials: never treated as a piece of a brand name.
 const DIAL_WORDS = new Set(('THE AND FOR WITH MADE JAPAN SWISS SWITZERLAND GERMANY CHINA WATER RESIST RESISTANT AUTO AUTOMATIC QUARTZ '
   + 'DATE DAY GMT UTC JEWELS JEWEL DIVER DIVERS METERS METRES FEET BAR ATM SOLAR KINETIC CHRONOGRAPH CHRONOMETER OFFICIALLY CERTIFIED '
   + 'SUPERLATIVE PERPETUAL PROFESSIONAL LIMITED EDITION SPORT SPORTS STEEL STAINLESS TITANIUM GOLD SAPPHIRE TACHYMETER TACHYMETRE '
   + 'HAND WOUND MANUAL POWER RESERVE MOVT MOVEMENT SECONDS MINUTES HOURS TWO THREE FOUR FIVE SIX TEN TWELVE').split(' '));
+
+// …including clipped ones ("SWIS" from SWISS MADE, "CHRONOM").
+const isDialWord = (w) => DIAL_WORDS.has(w) || (w.length >= 4 && [...DIAL_WORDS].some((d) => d.length > w.length && (d.startsWith(w) || d.endsWith(w))));
 
 /**
  * Best guesses for the brand from words read off a dial, even partial ones ("IKO" → Seiko, "ROLE" → Rolex).
@@ -238,10 +249,13 @@ export function guessBrands(words) {
   for (const [w, b] of DIAL_HINTS) { const c = clean(w); if (c.length >= 4) targets.push([c, b, true]); }
   const best = new Map();
   const list = [...words];
-  for (let i = 0; i + 1 < words.length; i++) list.push(`${words[i]} ${words[i + 1]}`);   // two-word names read as two words
+  const wordy = (w) => (String(w).match(/[A-Za-z]/g) || []).length >= 3;
+  for (let i = 0; i + 1 < words.length; i++) {       // two-word names read as two words (both must be real words)
+    if (wordy(words[i]) && wordy(words[i + 1])) list.push(`${words[i]} ${words[i + 1]}`);
+  }
   for (const raw of list) {
     const w = clean(raw);
-    if (w.length < 3 || DIAL_WORDS.has(w)) continue;
+    if (w.length < 3 || isDialWord(w) || (String(raw).match(/[A-Za-z]/g) || []).length < 3) continue;
     for (const [t, brand, partial] of targets) {
       let sc = 0;
       const ratio = Math.min(w.length, t.length) / Math.max(w.length, t.length);

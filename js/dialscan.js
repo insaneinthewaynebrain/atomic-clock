@@ -85,8 +85,9 @@ export async function scanDial(blob, onWord = () => {}) {
   const [w, img] = await Promise.all([worker(), blobImage(blob)]);
   const texts = [];
   const faint = [];          // low-confidence pieces, still useful for guessing the brand ("..IKO" → Seiko)
-  // Whole dial, then an enlarged crop of the upper middle, where the brand name nearly always sits.
-  const passes = [[false, undefined], [true, undefined], [false, [0.14, 0.1, 0.72, 0.5]], [true, [0.14, 0.1, 0.72, 0.5]]];
+  // Whole dial, then enlarged crops of the upper middle (where the brand nearly always sits) and the lower middle.
+  const TOP = [0.14, 0.1, 0.72, 0.5], LOW = [0.14, 0.5, 0.72, 0.36];     // brand above centre; model, depth, "AUTOMATIC" below
+  const passes = [[false, undefined], [true, undefined], [false, TOP], [true, TOP], [false, LOW], [true, LOW]];
   for (const [invert, crop] of passes) {
     const { data } = await w.recognize(prepared(img, invert, crop));
     const all = (data.words || []).filter((x) => /[A-Za-z0-9]{2,}/.test(x.text));

@@ -1,54 +1,124 @@
-// Finds a round watch head (dial + bezel) in a small square picture, so the camera can snap its crop to it.
-// Classic circle Hough transform guided by edge direction: every strong edge votes for centres along its
-// gradient (both ways, so light-on-dark and dark-on-light rings both count). Pure maths, no model, ~10 ms.
+// Finds a round watch head (bezel / case ring) in a small square picture, so the camera can snap its crop to it.
+//
+// How: for each candidate circle, walk round it at 64 points and check whether there's a clear light/dark change
+// *across* the circle there (the edge of a bezel). A real bezel has that nearly all the way round; hair, fabric,
+// bracelet links and dial print don't line up into a circle, so they can't fake it. Coarse search first, then a
+// fine one around the best few. Pure maths, no model; tuned on real wrist photos in poor light.
+
+const A = 64;                                   // points round each circle
+const COS = new Float32Array(A), SIN = new Float32Array(A);
+for (let i = 0; i < A; i++) { COS[i] = Math.cos((i / A) * 2 * Math.PI); SIN[i] = Math.sin((i / A) * 2 * Math.PI); }
 
 /**
- * @param {ImageData} img  a square-ish picture (about 160 px), roughly centred on where the watch should be
- * @returns {{cx:number, cy:number, r:number, score:number} | null}  in the picture's pixels
+ * @param {ImageData} img  a square picture (about 160 px), roughly centred on where the watch should be
+ * @returns {{cx:number, cy:number, r:number, score:number} | null}  in the picture's pixels; score = share of the
+ *   circle with a clear edge (0–1)
  */
 export function findDial(img) {
-  const first = rings(img, 0.86, 0.18, 0.5);
-  if (!first) return null;
-  const { top, outer } = first;
-  let res = outer;
-  if (outer.r <= top.r * 1.12) {
-    // Only the dial's own edge stood out: look again, more sensitively, for a fainter case/bezel ring just
-    // outside it (e.g. a gold case on a beige background).
-    const N = Math.min(img.width, img.height);
-    const second = rings(img, 0.7, Math.min(0.5, (top.r * 1.1) / N), Math.min(0.5, (top.r * 1.6) / N), top, 0.3);
-    if (second && second.best) res = second.best;
-  }
-  // Step outwards while the ring's edges keep going (an oval's far side), but never past 1.45× the ring found.
-  let r = res.r;
-  for (let i = 0; i < 4; i++) {
-    const nr = Math.min(res.r * 1.45, widest(first.edges, { ...res, r }));
-    if (nr < r * 1.02) break;
-    r = nr;
-  }
-  return { ...res, r };
-}
-
-/**
- * A watch seen at an angle is an oval: the ring found sits nearer its narrow side. Measure how far the
- * ring's own edges reach (edges facing the centre, near the ring) so the crop takes in the wide side too.
- */
-function widest(edges, c) {
-  const d = [];
-  for (let k = 0; k < edges.x.length; k++) {
-    const vx = edges.x[k] - c.cx, vy = edges.y[k] - c.cy, dist = Math.hypot(vx, vy);
-    if (dist < c.r * 0.85 || dist > c.r * 1.2) continue;
-    if (Math.abs((vx * edges.ux[k] + vy * edges.uy[k]) / dist) < 0.8) continue;     // not facing the centre
-    d.push(dist);
-  }
-  if (d.length < 2 * Math.PI * c.r * 0.25) return c.r;
-  d.sort((a, b) => a - b);
-  return Math.max(c.r, d[Math.floor(d.length * 0.85)]);
-}
-
-function rings(img, pct, rLo, rHi, near = null, minScore = 0.5) {
   const W = img.width, H = img.height, N = Math.min(W, H);
-  const p = img.data;
-  // Greyscale + 3×3 blur.
+  const { gx, gy, T } = gradients(img);
+
+  // How much of the circle (cx, cy, r) has an edge running along it. `band` allows a little slack in radius,
+  // which also lets a slightly tilted (oval) watch count.
+  const ring = (cx, cy, r, band) => {
+    const q = [0, 0, 0, 0];                       // hits per quarter: a real bezel has edges all the way round
+    for (let a = 0; a < A; a++) {
+      let best = 0;
+      for (let dr = -band; dr <= band; dr++) {
+        const x = Math.round(cx + COS[a] * (r + dr)), y = Math.round(cy + SIN[a] * (r + dr));
+        if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
+        const i = y * W + x;
+        const v = Math.abs(gx[i] * COS[a] + gy[i] * SIN[a]);   // the part of the edge that crosses the circle
+        if (v > best) best = v;
+      }
+      if (best > T) q[(a * 4 / A) | 0]++;
+    }
+    const per = A / 4;
+    const mean = (q[0] + q[1] + q[2] + q[3]) / A, worst = Math.min(...q) / per;
+    return 0.5 * mean + 0.5 * worst;              // a lopsided ring (strong on one side only) scores low
+  };
+
+  const rMin = Math.round(N * 0.2), rMax = Math.round(N * 0.5);
+  // A real edge peaks sharply at one radius; a "ring" stitched together from different edges (e.g. the
+  // crystal's top and the bezel's bottom) is a broad smear of middling scores. Reward the sharp ones.
+  const sharp = (cx, cy, r) => {
+    const v = ring(cx, cy, r, 1);
+    return v - 0.5 * (ring(cx, cy, r - 4, 1) + ring(cx, cy, r + 4, 1)) / 2;
+  };
+  // Every ring round one centre, measured once (much faster than asking ring by ring).
+  const profile = (cx, cy) => {
+    const p = new Float32Array(rMax + 6);
+    for (let r = rMin - 4; r <= rMax + 4; r++) p[r] = ring(cx, cy, r, 1);
+    return p;
+  };
+  const sharpOf = (p, r) => p[r] - 0.25 * (p[r - 4] + p[r + 4]);
+
+  // Coarse: centres near the middle (the guide is centred on the watch), every 4 px; radii every 3 px.
+  const lim = N * 0.2, mx = W / 2, my = H / 2;
+  const coarse = [];
+  for (let cy = Math.round(my - lim); cy <= my + lim; cy += 4) {
+    for (let cx = Math.round(mx - lim); cx <= mx + lim; cx += 4) {
+      for (let r = rMin; r <= rMax; r += 3) {
+        const s = ring(cx, cy, r, 2);
+        if (s >= 0.45) coarse.push({ cx, cy, r, s });
+      }
+    }
+  }
+  if (!coarse.length) return null;
+  coarse.sort((a, b) => b.s - a.s);
+
+  // Fine: around the best few coarse hits, every pixel, tighter radius slack.
+  let best = null;
+  for (const c of coarse.slice(0, 6)) {
+    for (let cy = c.cy - 3; cy <= c.cy + 3; cy++) for (let cx = c.cx - 3; cx <= c.cx + 3; cx++) {
+      for (let r = c.r - 3; r <= c.r + 3; r++) {
+        if (r < rMin || r > rMax) continue;
+        const s = ring(cx, cy, r, 1);
+        if (s < 0.6) continue;
+        const k = sharp(cx, cy, r);
+        if (!best || k > best.k) best = { cx, cy, r, s, k };
+      }
+    }
+  }
+  if (!best || best.s < 0.68) return null;
+
+  // A watch head is many circles sharing one centre (crystal edge, chapter ring, dial edge, bezel); a case
+  // outline bulging at the lugs or pushers isn't. So settle the centre where the most rings line up…
+  const support = (cx, cy) => {
+    const p = profile(cx, cy);
+    let t = 0;
+    for (let r = rMin; r <= rMax; r++) { const v = sharpOf(p, r); if (v > 0.35) t += v - 0.35; }
+    return t / 2;
+  };
+  const starts = [best, coarse[0]];
+  let centre = { cx: best.cx, cy: best.cy, t: support(best.cx, best.cy) };
+  for (const st of starts) {
+    for (let cy = st.cy - 10; cy <= st.cy + 10; cy += 2) for (let cx = st.cx - 10; cx <= st.cx + 10; cx += 2) {
+      const t = support(cx, cy);
+      if (t > centre.t) centre = { cx, cy, t };
+    }
+  }
+  for (let cy = centre.cy - 2; cy <= centre.cy + 2; cy++) for (let cx = centre.cx - 2; cx <= centre.cx + 2; cx++) {
+    const t = support(cx, cy);
+    if (t > centre.t) centre = { cx, cy, t };
+  }
+  // …then take the outermost strong ring round it, so the crop includes the whole bezel.
+  const prof = profile(centre.cx, centre.cy);
+  let outer = null;
+  for (let r = rMin; r <= rMax; r++) if (prof[r] >= 0.68) outer = { cx: centre.cx, cy: centre.cy, r, s: prof[r] };
+  if (!outer) outer = best;
+  // A white or polished bezel on a pale case can be faint: once the centre is settled, accept a fainter ring a
+  // little further out (it has to be a sharp, clean edge round that same centre).
+  for (let r = Math.ceil(outer.r * 1.05); r <= Math.min(rMax, outer.r * 1.3); r++) {
+    const v = ring(outer.cx, outer.cy, r, 1);
+    if (v >= 0.5 && sharp(outer.cx, outer.cy, r) >= 0.25) outer = { ...outer, r, s: Math.max(outer.s, v) };
+  }
+  return { cx: outer.cx, cy: outer.cy, r: outer.r, score: outer.s };
+}
+
+/** Sobel gradients of a lightly blurred greyscale copy, and an "is this a real edge" level for this picture. */
+function gradients(img) {
+  const W = img.width, H = img.height, p = img.data;
   const g0 = new Float32Array(W * H);
   for (let i = 0, j = 0; j < W * H; i += 4, j++) g0[j] = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
   const g = new Float32Array(W * H);
@@ -57,73 +127,15 @@ function rings(img, pct, rLo, rHi, near = null, minScore = 0.5) {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += g0[(y + dy) * W + x + dx];
     g[y * W + x] = s / 9;
   }
-  // Sobel edges.
-  const ex = [], ey = [], ux = [], uy = [];
-  const mags = new Float32Array(W * H);
-  const gxA = new Float32Array(W * H), gyA = new Float32Array(W * H);
-  for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
+  const gx = new Float32Array(W * H), gy = new Float32Array(W * H), mag = [];
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
     const i = y * W + x;
-    const gx = g[i - W + 1] + 2 * g[i + 1] + g[i + W + 1] - g[i - W - 1] - 2 * g[i - 1] - g[i + W - 1];
-    const gy = g[i + W - 1] + 2 * g[i + W] + g[i + W + 1] - g[i - W - 1] - 2 * g[i - W] - g[i - W + 1];
-    gxA[i] = gx; gyA[i] = gy; mags[i] = Math.hypot(gx, gy);
+    gx[i] = g[i - W + 1] + 2 * g[i + 1] + g[i + W + 1] - g[i - W - 1] - 2 * g[i - 1] - g[i + W - 1];
+    gy[i] = g[i + W - 1] + 2 * g[i + W] + g[i + W + 1] - g[i - W - 1] - 2 * g[i - W] - g[i - W + 1];
+    mag.push(Math.hypot(gx[i], gy[i]));
   }
-  const sorted = Float32Array.from(mags).sort();
-  const thr = Math.max(30, sorted[Math.floor(sorted.length * pct)]);
-  for (let i = 0; i < mags.length; i++) {
-    if (mags[i] < thr) continue;
-    ex.push(i % W); ey.push((i / W) | 0); ux.push(gxA[i] / mags[i]); uy.push(gyA[i] / mags[i]);
-  }
-  if (ex.length < 40) return near ? { best: null } : null;
-
-  // Votes for (centre, radius).
-  const rMin = Math.round(N * rLo), rMax = Math.max(Math.round(N * rLo), Math.round(N * rHi));
-  const nR = rMax - rMin + 1;
-  const acc = new Uint16Array(nR * W * H);
-  for (let k = 0; k < ex.length; k++) {
-    const x = ex[k], y = ey[k], dx = ux[k], dy = uy[k];
-    for (let ri = 0; ri < nR; ri++) {
-      const r = rMin + ri;
-      for (const sgn of [1, -1]) {
-        const cx = Math.round(x + sgn * dx * r), cy = Math.round(y + sgn * dy * r);
-        if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
-        acc[ri * W * H + cy * W + cx]++;
-      }
-    }
-  }
-  // Best centre for each radius (3×3 neighbourhood sum soaks up rounding), scored as the share of the
-  // circumference that has a matching edge. Only centres near the middle count: the guide is centred.
-  const cands = [];
-  const lim = near ? N * 0.05 : N * 0.22, mx = near ? near.cx : W / 2, my = near ? near.cy : H / 2;
-  for (let ri = 0; ri < nR; ri++) {
-    const r = rMin + ri, base = ri * W * H;
-    let best = 0, bx = 0, by = 0;
-    for (let y = Math.max(1, Math.floor(my - lim)); y < Math.min(H - 1, my + lim); y++) {
-      for (let x = Math.max(1, Math.floor(mx - lim)); x < Math.min(W - 1, mx + lim); x++) {
-        // 3×3 around the centre, over this radius and its neighbours: a watch seen at an angle is an oval,
-        // whose edge votes spread over a few radii and centres.
-        let v = 0;
-        for (let dr = -1; dr <= 1; dr++) {
-          if (ri + dr < 0 || ri + dr >= nR) continue;
-          const i = (ri + dr) * W * H + y * W + x, wgt = dr ? 0.6 : 1;
-          v += wgt * (acc[i] + acc[i - 1] + acc[i + 1] + acc[i - W] + acc[i + W] + 0.5 * (acc[i - W - 1] + acc[i - W + 1] + acc[i + W - 1] + acc[i + W + 1]));
-        }
-        v /= 2.2;          // same scale as a single radius, so the score thresholds below still mean the same
-        if (v > best) { best = v; bx = x; by = y; }
-      }
-    }
-    cands.push({ cx: bx, cy: by, r, score: best / (2 * Math.PI * r) });
-  }
-  if (near) {
-    // Second pass: the largest ring around the same centre that's clearly there.
-    const ok = cands.filter((c) => c.score >= minScore);
-    return { best: ok.length ? ok.reduce((a, b) => (b.r > a.r ? b : a)) : null };
-  }
-  const top = cands.reduce((a, b) => (b.score > a.score ? b : a));
-  if (top.score < minScore) return null;
-  // Several rings (dial edge, chapter ring, bezel): take the outermost strong one that shares the centre,
-  // so the crop includes the bezel.
-  const outer = cands.filter((c) => c.score >= Math.max(0.5, top.score * 0.45) && Math.hypot(c.cx - top.cx, c.cy - top.cy) <= N * 0.06)
-    .reduce((a, b) => (b.r > a.r ? b : a), top);
-  return { top, outer, edges: { x: ex, y: ey, ux, uy } };
+  mag.sort((a, b) => a - b);
+  // A clear edge: stronger than most of the picture (works in dim light, where every edge is weak).
+  const T = Math.max(24, mag[Math.floor(mag.length * 0.72)]);
+  return { gx, gy, T };
 }
-

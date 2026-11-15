@@ -283,19 +283,27 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       const [vw, vh] = natural();
       if (!vw || !vh) return;
       const f = fit();
-      const side = f.w * 1.3;
+      const side = f.w * 1.5;          // a bit beyond the guide, in case the watch is bigger than it
       const area = { x: f.x + f.w / 2 - side / 2, y: f.y + f.h / 2 - side / 2, w: side, h: side };
       let found = null;
       try { found = findDial(grab(area, LOOK, LOOK).getContext('2d').getImageData(0, 0, LOOK, LOOK)); } catch (e) { found = null; }
       if (!found) { if (!snap || Date.now() - snap.t > 900) { snap = null; ring.hidden = true; } return; }
       const k = side / LOOK;
-      const nx = area.x + found.cx * k, ny = area.y + found.cy * k, nr = found.r * k * 1.02;   // a hair outside the case edge
+      const nx = area.x + found.cx * k, ny = area.y + found.cy * k, nr = found.r * k * 1.05;   // a little outside the bezel, so it's never clipped
       // Smooth so the ring doesn't jitter.
       snap = snap ? { x: snap.x * 0.5 + nx * 0.5, y: snap.y * 0.5 + ny * 0.5, r: snap.r * 0.5 + nr * 0.5, t: Date.now() } : { x: nx, y: ny, r: nr, t: Date.now() };
       Object.assign(ring.style, { left: snap.x - snap.r + 'px', top: snap.y - snap.r + 'px', width: snap.r * 2 + 'px', height: snap.r * 2 + 'px' });
       ring.hidden = false;
     }
-    const looker = setInterval(lookForDial, 320);
+    // Self-paced: wait at least twice as long as the last look took, so the viewfinder stays smooth on any phone.
+    let looker = null;
+    const loop = () => {
+      if (done) return;
+      const t0 = performance.now();
+      lookForDial();
+      looker = setTimeout(loop, Math.max(300, 2 * (performance.now() - t0)));
+    };
+    looker = setTimeout(loop, 400);
 
     /** A transparent-background picture: trim to the watch's own outline (max 900 px), kept as PNG. */
     async function cutoutBlob() {
@@ -421,7 +429,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     function finish(result) {
       if (done) return;
       done = true;
-      clearInterval(looker);
+      clearTimeout(looker);
       stopStream();
       if (still) URL.revokeObjectURL(still.src);
       window.removeEventListener('resize', layout);
