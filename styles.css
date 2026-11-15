@@ -670,3 +670,20 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 .bs-next { font-size: 16px; color: #3a2020; }
 .bedside.bright .bs-time { color: #e8ecf4; } .bedside.bright .bs-next { color: #8f98ab; }
 .bs-exit { position: absolute; bottom: calc(var(--safe-bottom) + 24px); background: none; border: 1px solid #222; color: #444; border-radius: 99px; padding: 10px 18px; font-size: 14px; }
+/* Timegrapher: background measurement + countdown */
+.tg-status.ok { color: var(--green); }
+.tg-sig { font-size: 12px; color: var(--accent); margin-top: 6px; min-height: 16px; }
+.tg-trace-wrap { position: relative; }
+.tg-count { position: absolute; inset: 10px 0 0; display: grid; place-items: center; font-size: 84px; font-weight: 800; color: var(--amber); background: rgba(11,13,18,.82); border-radius: 10px; animation: cdpop 1s ease-out infinite; }
+.tg-count[hidden] { display: none; }
+@keyframes cdpop { 0% { transform: scale(1.25); opacity: .4; } 25% { transform: scale(1); opacity: 1; } }
+.tg-base { margin-top: 12px; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--line); background: var(--bg); }
+.tg-base.done { border-style: solid; border-color: rgba(52,211,153,.45); }
+.tg-base.done #tg-base-txt { color: var(--green); }
+.tg-base-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.tg-base-track { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
+.tg-base-bar { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s linear; }
+.tg-base.done .tg-base-bar { background: var(--green); }
+.tg-btns { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 12px; }
+.tg-btns .btn { padding: 10px 6px; font-size: 14px; }
+.tg-btns .btn.danger { background: rgba(248,113,113,.15); color: var(--red); border-color: rgba(248,113,113,.5); }
