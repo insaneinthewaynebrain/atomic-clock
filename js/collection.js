@@ -40,7 +40,12 @@ export function subtitle(w) {
 /** Number of distinct days a watch has been worn (from the Wrist tab). */
 export function daysWorn(id) {
   const days = new Set();
-  for (const e of d().wear) if (e.watchId === id) days.add(new Date(e.on).toDateString());
+  for (const e of d().wear) {
+    if (e.watchId !== id) continue;
+    const end = e.off || Date.now();
+    const c = new Date(e.on); c.setHours(0, 0, 0, 0);
+    for (let i = 0; c.getTime() <= end && i < 400; i++) { days.add(c.toDateString()); c.setDate(c.getDate() + 1); }
+  }
   return days.size;
 }
 

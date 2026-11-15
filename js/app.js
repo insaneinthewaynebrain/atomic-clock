@@ -11,11 +11,12 @@ import { initTools, showTools, hideTools, registerTool } from './tools.js';
 import { openTool, goHome } from './tools.js';
 import { backupBanner } from './backup.js';
 import { APP_NAME } from './config.js';
+import * as wrist from './wrist.js';
 
-export const APP_VERSION = '6';
+export const APP_VERSION = '7';
 
 // Feature modules that register their own tabs/tools.
-const EXTRA_MODULES = [];
+const EXTRA_MODULES = [wrist];
 
 const TABS = {
   clock: { show: showClock, hide: hideClock },
