@@ -658,6 +658,115 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 .bedside.bright .bs-time { color: #e8ecf4; } .bedside.bright .bs-next { color: #8f98ab; }
 .bs-exit { position: absolute; bottom: calc(var(--safe-bottom) + 24px); background: none; border: 1px solid #222; color: #444; border-radius: 99px; padding: 10px 18px; font-size: 14px; }
 
+/* Alarm section navigation */
+.alarm-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 4px 0 4px; }
+@media (min-width: 520px) { .alarm-nav { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.anav-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 58px; padding: 6px 2px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 700; min-width: 0; }
+.anav-btn span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.anav-icon { font-size: 20px; line-height: 1.1; }
+.anav-btn.active { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.alarm-view > .notice:first-child { margin-top: 12px; }
+.card-title .muted { font-weight: 400; }
+.sub-title { font-size: 14px; margin: 14px 0 4px; color: var(--muted); }
+.bank-no { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--line); font-size: 13px; font-weight: 800; color: var(--muted); }
+.alarm-row:not(.off) .bank-no { background: rgba(52,211,153,.15); border-color: rgba(52,211,153,.5); color: var(--green); }
+.empty-bank { width: 100%; background: none; border-left: 0; border-right: 0; border-bottom: 0; text-align: left; min-height: 56px; color: var(--muted); }
+.alarm-row.empty-bank:first-child { border-top: 0; }
+.empty-bank .muted { flex: 1; }
+.empty-bank .bank-no { border-style: dashed; background: none; color: var(--muted); }
+.empty-bank .plus { color: var(--accent); font-size: 20px; font-weight: 700; }
+.sun-tag { font-size: 20px; margin-right: 6px; vertical-align: 4px; }
+.sun-card p { margin: 0 0 8px; }
+.sun-card .plain-list { margin-bottom: 10px; }
+.sun-loc { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; color: var(--text); margin: 8px 0 4px; }
+.sun-loc > span { min-width: 0; overflow-wrap: anywhere; }
+.sun-preview { font-size: 13px; color: var(--muted); margin-top: 6px; min-height: 18px; }
+.sun-preview b { color: var(--text); }
+.warn-text { color: var(--amber); }
+.mode-box { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.light-box { padding: 12px; border-radius: 12px; border: 1px solid rgba(251,146,60,.4); background: linear-gradient(160deg, rgba(251,146,60,.14), rgba(127,29,29,.08)); margin-bottom: 12px; }
+.light-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; }
+.light-box p { margin: 6px 0 8px; }
+.light-box .link-btn { padding: 8px 0 0; color: #fdba74; }
+.modal-body .field + .field, .modal-body .light-box + .field { margin-top: 12px; }
+
+/* Sunrise wake light */
+.sunrise { position: fixed; inset: 0; z-index: 260; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow: hidden; --sun-y: 88%; --sun-glow: #000; transition: background 1s linear; }
+.sun-disc { position: absolute; left: 50%; top: var(--sun-y); width: 46vmin; height: 46vmin; border-radius: 50%; transform: translate(-50%, -50%); background: radial-gradient(circle, var(--sun-glow) 0%, transparent 68%); filter: blur(6px); transition: top 1s linear; pointer-events: none; }
+.sun-info { position: relative; margin-top: calc(var(--safe-top) + 12vh); text-align: center; color: rgba(255,255,255,.28); }
+.sun-time { font-size: min(18vw, 96px); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.sun-next { font-size: 15px; margin-top: 8px; }
+.sunrise.day .sun-info { color: rgba(80,30,0,.6); }
+.sun-btns { position: absolute; bottom: calc(var(--safe-bottom) + 24px); display: flex; flex-direction: column; gap: 10px; align-items: center; padding: 0 16px; }
+.sun-btn { background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.14); color: rgba(255,255,255,.45); border-radius: 99px; padding: 10px 18px; font-size: 14px; }
+.sunrise.day .sun-btn { color: rgba(80,30,0,.7); border-color: rgba(80,30,0,.25); background: rgba(255,255,255,.2); }
+.alarm-ring.sunlit { background: radial-gradient(ellipse 140% 100% at 50% 55%, #fff4e2 0%, #ffba66 45%, #f3701c 100%); color: #3b1600; animation: none; }
+.alarm-ring.sunlit .ar-label, .alarm-ring.sunlit .ar-sub { color: #5a2400; }
+.alarm-ring.sunlit .btn:not(.primary) { background: rgba(255,255,255,.55); border-color: rgba(90,36,0,.2); color: #3b1600; }
+.ar-sub { font-size: 16px; color: #aab3c5; max-width: 420px; }
+.ar-btns.one { grid-template-columns: minmax(0, 1fr); }
+
+/* Timers */
+.timer-card { text-align: center; }
+.big-time { font-size: min(19vw, 84px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.05; letter-spacing: -1px; margin: 6px 0; }
+.big-time.sw { font-size: min(16vw, 76px); }
+.tbar { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 6px 0 8px; }
+.tbar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); border-radius: inherit; transition: width .1s linear; }
+.num-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.num-box { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; color: var(--muted); min-width: 0; }
+.num-in { text-align: center; font-size: 26px; font-weight: 800; min-height: 56px; font-variant-numeric: tabular-nums; padding: 4px; }
+.preset-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 4px 0; }
+.preset { min-height: 38px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 13px; font-weight: 700; padding: 0 2px; }
+.btn-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin: 12px 0 4px; }
+.big-btn { min-height: 56px; font-size: 18px; font-weight: 700; }
+.btn.stop-btn { background: var(--red); color: #2b0505; border-color: transparent; }
+.timer-card .field { text-align: left; margin-top: 14px; }
+.lap-sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; text-align: center; margin-bottom: 10px; }
+.lap-sum > div { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
+.lap-head, .lap-row { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding: 8px 0; font-variant-numeric: tabular-nums; }
+.lap-head span:not(:first-child), .lap-row span:not(:first-child) { text-align: right; }
+.lap-row { border-top: 1px solid var(--line); }
+.lap-t { font-weight: 700; }
+.lap-row.best .lap-t, .good-t { color: var(--green); }
+.lap-row.worst .lap-t, .bad-t { color: var(--red); }
+.lap-cur { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 700; }
+
+/* Egg timer */
+.egg-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+@media (min-width: 520px) { .egg-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.egg-card { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 8px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); text-align: center; min-width: 0; }
+.egg-card.on { border-color: var(--amber); background: linear-gradient(180deg, rgba(251,191,36,.16), rgba(251,191,36,.04)); box-shadow: 0 0 0 1px var(--amber) inset; }
+.egg-svg { width: 48px; height: 56px; }
+.egg-name { font-weight: 800; font-size: 15px; }
+.egg-desc { font-size: 12px; color: var(--muted); line-height: 1.25; }
+.egg-mins { font-size: 13px; font-weight: 700; color: var(--amber); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.seg.seg4 { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 4px; }
+.egg-total { font-size: 20px; font-weight: 800; margin: 10px 0 0; font-variant-numeric: tabular-nums; }
+.egg-run .egg-svg { width: 84px; height: 98px; animation: eggbob 2.4s ease-in-out infinite; }
+@keyframes eggbob { 50% { transform: translateY(-4px) rotate(4deg); } }
+@media (prefers-reduced-motion: reduce) { .egg-run .egg-svg { animation: none; } }
+.egg-run-name { font-weight: 800; font-size: 18px; }
+
+/* Medication timers */
+.med-card { padding: 14px; }
+.med-card.run { border-color: rgba(76,194,255,.45); }
+.med-card.due { border-color: rgba(248,113,113,.7); background: linear-gradient(180deg, rgba(248,113,113,.14), var(--surface)); }
+.med-head { display: flex; align-items: center; gap: 10px; }
+.med-name { flex: 1; min-width: 0; font-weight: 700; }
+.med-every { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center; margin-top: 10px; }
+.med-every .num-in { font-size: 20px; min-height: 46px; }
+.med-status { text-align: center; margin: 12px 0 4px; }
+.med-big { font-size: min(13vw, 52px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.med-card.idle .med-big { color: var(--muted); }
+.med-card.due .med-big { color: var(--red); }
+.med-txt { color: var(--muted); }
+.med-card.due .med-txt { color: #fecaca; }
+.med-btns { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 10px; }
+.med-btns .btn { padding-left: 6px; padding-right: 6px; }
+.med-card .field { margin-top: 12px; }
+.med-card p { margin: 8px 0 0; }
+.add-med { border-style: dashed; color: var(--accent); min-height: 52px; }
+
 /* ================= Timegrapher ================= */
 @media (min-width: 700px) { .tool-panel[data-tool="timegrapher"] > div { max-width: 680px; margin: 0 auto; } }
 .tg-card { margin-top: 12px; }
@@ -832,3 +941,4 @@ body.tg-stage-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .tg-stage, .tg-stage *, .tg-step-body, .tg-in, .tg-last-card { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+.card > .field { margin-top: 14px; }

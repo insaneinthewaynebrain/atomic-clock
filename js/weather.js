@@ -117,7 +117,7 @@ async function fetchForecast(lat, lon) {
   }
 }
 
-function getPosition() {
+export function getPosition() {
   return new Promise((resolve, reject) => {
     if (!('geolocation' in navigator)) { reject(new Error('Location is not available on this device')); return; }
     navigator.geolocation.getCurrentPosition(
@@ -167,7 +167,7 @@ function kmBetween(a, b) {
   return Math.sqrt(x * x + y * y) * 6371;
 }
 
-async function nearestTown(lat, lon, previous) {
+export async function nearestTown(lat, lon, previous) {
   // Reuse the last name if we've barely moved.
   if (previous && previous.gps && previous.town && kmBetween(previous, { lat, lon }) < 1) {
     return { town: previous.town, region: previous.region };

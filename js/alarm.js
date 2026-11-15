@@ -1,20 +1,56 @@
-// Alarm clock. A web app can only ring while it's open on screen (the iPhone pauses it when
-// locked), so there's a Bedside mode that keeps a dim clock showing all night.
+// Alarm section: 5 alarm banks (each with an optional sunrise wake light, and the choice of a set
+// time or the real local sunrise), Bedside mode, and the timers (countdown, stopwatch, laps, eggs,
+// medication) from timers.js.
+// A web app can only ring while it's open on screen (the iPhone pauses it when locked), so
+// Bedside mode keeps a dim clock showing all night.
 import * as store from './store.js';
 import { now } from './time.js';
-import { el, openModal, confirmModal, toast, pad } from './ui.js';
-import { getAudio, unlockAudio } from './countdown.js';
+import { el, openModal, confirmModal, toast, pad, placeSearchModal, placeLabel } from './ui.js';
+import { unlockAudio } from './countdown.js';
+import { ringAlert, isRinging, toneField, stopPreview } from './ring.js';
+import { normTone, TONE_SHORT } from './music.js';
+import { sunriseOn } from './sun.js';
+import { getPosition, nearestTown } from './weather.js';
+import * as timers from './timers.js';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];   // index 0 = Monday
-const SOUNDS = [['beeps', 'Classic beeps'], ['chime', 'Gentle chime'], ['pips', 'Time pips']];
+const BANKS = 5;
 const SNOOZE_MIN = 9;
 const CATCH_UP_MS = 2 * 60 * 1000;        // ring if the app was reopened within 2 min of the time
+const LIGHT_MINS = [10, 15, 20, 30, 45, 60];
+const OFFSETS = [-60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60];
+const VIEWS = [['alarms', '⏰', 'Alarms'], ['timer', '⏳', 'Timer'], ['stopwatch', '⏱️', 'Stopwatch'],
+  ['laps', '🏁', 'Lap timer'], ['eggs', '🥚', 'Egg timer'], ['meds', '💊', 'Medication']];
 const $ = (id) => document.getElementById(id);
 const d = () => store.get();
-const alarms = () => (d().alarms ||= []);
 const dow = (date) => (date.getDay() + 6) % 7;   // Monday = 0
 
-let ringing = null, ringTimer = null, ringStart = 0, wake = null, bedside = null, bedTimer = null;
+let bedside = null, bedTimer = null, bedWake = null, sun = null, panelOpen = false, liveTimer = null, liveUpdate = null;
+
+/* ---------- Data ---------- */
+// Alarms live in d().alarms; each has a bank number 0–4. Older alarms are moved into free banks.
+function alarms() {
+  const list = (d().alarms ||= []);
+  if (list.some((a) => a.bank == null)) {
+    const used = new Set(list.map((a) => a.bank).filter((b) => b != null));
+    for (const a of list) {
+      if (a.bank != null) continue;
+      for (let b = 0; b < BANKS; b++) if (!used.has(b)) { a.bank = b; used.add(b); break; }
+      if (a.bank == null) a.bank = -1;            // more than 5 old alarms: kept, listed as "Other"
+    }
+    store.save();
+  }
+  return list;
+}
+const inBank = (b) => alarms().find((a) => a.bank === b);
+
+/** Where sunrise is worked out: a chosen place, else the weather location. */
+export function sunPlace() {
+  const p = d().sunPlace;
+  if (p) return p;
+  const w = d().weather?.cache?.place;
+  return w && Number.isFinite(w.lat) ? { name: w.town || w.name, lat: w.lat, lon: w.lon, fromWeather: true } : null;
+}
 
 /* ---------- Scheduling ---------- */
 function todayAt(hhmm, base) {
@@ -23,14 +59,24 @@ function todayAt(hhmm, base) {
   return x.getTime();
 }
 
+/** When this alarm rings on the local day of `base` (ms), or null. */
+function ringOnDay(a, base) {
+  if (a.mode !== 'sunrise') return todayAt(a.time, base);
+  const r = sunriseOn(new Date(base), sunPlace());
+  if (!r) return null;
+  let at = r + (a.offset || 0) * 60000;
+  if (a.latest) at = Math.min(at, todayAt(a.latest, base));
+  return at;
+}
+
 /** Next time this alarm will ring (ms), or null. */
 export function nextRing(a, t = now()) {
   if (!a.enabled) return null;
   if (a.snoozeAt && a.snoozeAt > t - CATCH_UP_MS) return a.snoozeAt;
   for (let i = 0; i < 8; i++) {
     const base = new Date(t); base.setDate(base.getDate() + i);
-    const at = todayAt(a.time, base);
-    if (at < t - CATCH_UP_MS) continue;
+    const at = ringOnDay(a, base);
+    if (at == null || at < t - CATCH_UP_MS) continue;
     if (a.days?.length && !a.days.includes(dow(new Date(at)))) continue;
     if (a.lastFired === at) continue;
     return at;
@@ -45,85 +91,43 @@ export function nextAlarm() {
 }
 
 function check() {
-  if (ringing) return;
   const t = now();
+  timers.check(t);
   for (const a of alarms()) {
     const at = nextRing(a, t);
     if (at && t >= at && t - at < CATCH_UP_MS) { ring(a, at); break; }
   }
+  checkSunrise(t);
   updateClockLine();
-}
-
-/* ---------- Sound ---------- */
-function tone(ctx, at, freq, dur, vol, type = 'sine') {
-  const o = ctx.createOscillator(), g = ctx.createGain();
-  o.type = type; o.frequency.value = freq;
-  g.gain.setValueAtTime(0.0001, at);
-  g.gain.linearRampToValueAtTime(vol, at + 0.01);
-  g.gain.setValueAtTime(vol, at + dur - 0.03);
-  g.gain.linearRampToValueAtTime(0.0001, at + dur);
-  o.connect(g).connect(ctx.destination);
-  o.start(at); o.stop(at + dur + 0.05);
-}
-
-// One 2-second phrase of the chosen sound; volume builds up over the first 30 seconds.
-function phrase(sound, ctx, vol) {
-  const t0 = ctx.currentTime + 0.05;
-  if (sound === 'chime') {
-    [[0, 1047], [0.35, 1319], [0.7, 1568]].forEach(([dt, f]) => tone(ctx, t0 + dt, f, 0.9, vol * 0.7, 'triangle'));
-  } else if (sound === 'pips') {
-    for (let i = 0; i < 5; i++) tone(ctx, t0 + i * 0.3, 1000, 0.1, vol);
-  } else {
-    for (let i = 0; i < 4; i++) tone(ctx, t0 + i * 0.18, i % 2 ? 1760 : 1320, 0.1, vol, 'square');
-  }
-}
-
-export function preview(sound) {
-  unlockAudio();
-  setTimeout(() => { const ctx = getAudio(); if (ctx) phrase(sound, ctx, 0.6); else toast('Sound is blocked — turn the volume up'); }, 120);
 }
 
 /* ---------- Ringing ---------- */
 function ring(a, at) {
-  ringing = a;
-  ringStart = Date.now();
-  a.lastFired = a.snoozeAt && Math.abs(a.snoozeAt - at) < 1000 ? a.lastFired : at;
+  const snoozing = a.snoozeAt && Math.abs(a.snoozeAt - at) < 1000;
+  if (!snoozing) a.lastFired = at;
   a.snoozeAt = null;
   if (!a.days?.length && !a.snoozed) a.enabled = false;   // one-off alarms switch themselves off
   store.save();
-  const overlay = el('div', { id: 'alarm-ring', class: 'alarm-ring', role: 'alertdialog', 'aria-label': 'Alarm' },
-    el('div', { class: 'ar-icon' }, '⏰'),
-    el('div', { class: 'ar-time', id: 'ar-time' }, ''),
-    el('div', { class: 'ar-label' }, a.label || 'Alarm'),
-    el('div', { class: 'ar-btns' },
-      el('button', { type: 'button', class: 'btn ar-snooze', onclick: () => stopRing(true) }, `Snooze ${SNOOZE_MIN} min`),
-      el('button', { type: 'button', class: 'btn primary ar-stop', onclick: () => stopRing(false) }, 'Stop')));
-  document.body.append(overlay);
-  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { wake = w; }).catch(() => {});
-  const beat = () => {
-    const el2 = $('ar-time'); if (el2) { const x = new Date(now()); el2.textContent = `${pad(x.getHours())}:${pad(x.getMinutes())}`; }
-    const ctx = getAudio();
-    const vol = Math.min(0.95, 0.25 + ((Date.now() - ringStart) / 30000) * 0.7);
-    if (ctx) phrase(a.sound || 'beeps', ctx, vol);
-    if (Date.now() - ringStart > 10 * 60 * 1000) stopRing(false);  // give up after 10 minutes
+  if (a.light && sun && !sun.demo) drawSun(1);
+  const done = (snooze) => {
+    hideSun();
+    if (snooze) {
+      a.snoozeAt = Math.round(now()) + SNOOZE_MIN * 60000;
+      a.enabled = true; a.snoozed = true;
+      toast(`Snoozing until ${hhmm(a.snoozeAt)}`);
+    } else { a.snoozed = false; if (!a.days?.length) a.enabled = false; }
+    store.save();
+    if (panelOpen) render();
+    updateClockLine();
   };
-  beat();
-  ringTimer = setInterval(beat, 2000);
-}
-
-function stopRing(snooze) {
-  clearInterval(ringTimer);
-  const a = ringing;
-  ringing = null;
-  $('alarm-ring')?.remove();
-  if (wake && !bedside) { wake.release().catch(() => {}); wake = null; }
-  if (a && snooze) {
-    a.snoozeAt = Math.round(now()) + SNOOZE_MIN * 60000;
-    a.enabled = true; a.snoozed = true;
-    toast(`Snoozing until ${hhmm(a.snoozeAt)}`);
-  } else if (a) { a.snoozed = false; if (!a.days?.length) a.enabled = false; }
-  store.save();
-  render(); updateClockLine();
+  ringAlert({
+    icon: a.mode === 'sunrise' ? '🌅' : '⏰',
+    title: a.label || `Alarm ${a.bank >= 0 ? a.bank + 1 : ''}`.trim(),
+    label: a.mode === 'sunrise' ? 'Good morning — the sun is up' : null,
+    sound: a.sound, sunlit: !!a.light,
+    buttons: [{ label: `Snooze ${SNOOZE_MIN} min`, fn: () => done(true) }, { label: 'Stop', kind: 'primary', fn: () => done(false) }],
+    onTimeout: () => done(false),
+  });
 }
 
 const hhmm = (t) => { const x = new Date(t); return `${pad(x.getHours())}:${pad(x.getMinutes())}`; };
@@ -132,6 +136,84 @@ function inText(ms) {
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
   return h < 24 ? `${h} h ${m % 60} min` : `${Math.floor(h / 24)} d ${h % 24} h`;
+}
+
+/* ---------- Sunrise wake light ----------
+ Like a sunrise (dawn-simulation) lamp: the screen starts black and glows deep red, then orange,
+ then golden and finally warm white, reaching full brightness at the alarm time. */
+const SUN_STOPS = [[0, [0, 0, 0]], [0.12, [24, 2, 0]], [0.3, [88, 12, 2]], [0.5, [178, 44, 6]],
+  [0.68, [250, 112, 28]], [0.84, [255, 186, 102]], [1, [255, 244, 226]]];
+function sunColour(p) {
+  p = Math.max(0, Math.min(1, p));
+  for (let i = 1; i < SUN_STOPS.length; i++) {
+    const [p1, c1] = SUN_STOPS[i];
+    if (p <= p1) {
+      const [p0, c0] = SUN_STOPS[i - 1], k = (p - p0) / (p1 - p0);
+      return `rgb(${c0.map((v, j) => Math.round(v + (c1[j] - v) * k)).join(',')})`;
+    }
+  }
+  return 'rgb(255,244,226)';
+}
+
+function showSun({ a, at, start, end, demo }) {
+  hideSun();
+  const box = el('div', { id: 'sunrise', class: 'sunrise' },
+    el('div', { class: 'sun-disc' }),
+    el('div', { class: 'sun-info' },
+      el('div', { class: 'sun-time', id: 'sun-time' }, ''),
+      el('div', { class: 'sun-next' }, demo ? 'Sunrise preview — one minute' : `Wake light · alarm at ${hhmm(at)}`)),
+    el('div', { class: 'sun-btns' },
+      demo ? el('button', { type: 'button', class: 'sun-btn', onclick: hideSun }, 'Close preview') : [
+        el('button', { type: 'button', class: 'sun-btn', onclick: () => { a.lightSkip = at; store.save(); hideSun(); } }, 'Turn off the light'),
+        el('button', { type: 'button', class: 'sun-btn', onclick: () => { a.lastFired = at; if (!a.days?.length) a.enabled = false; store.save(); hideSun(); toast('Alarm off — have a good day'); if (panelOpen) render(); } }, 'I’m up — cancel this alarm'),
+      ]));
+  document.body.append(box);
+  sun = { a, at, start, end, demo, box, wake: null };
+  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { if (sun) sun.wake = w; else w.release(); }).catch(() => {});
+  drawSun();
+  if (demo) sun.timer = setInterval(() => { drawSun(); if (Date.now() > end + 6000) hideSun(); }, 250);
+}
+
+function drawSun(force) {
+  if (!sun) return;
+  const t = sun.demo ? Date.now() : now();
+  const p = force ?? Math.max(0, Math.min(1, (t - sun.start) / (sun.end - sun.start)));
+  const e = Math.pow(p, 1.3);   // our eyes notice the first glow most, so start gently
+  sun.box.style.background = `radial-gradient(ellipse 140% 100% at 50% ${105 - e * 55}%, ${sunColour(e)} 0%, ${sunColour(e * 0.82)} 38%, ${sunColour(e * 0.55)} 100%)`;
+  sun.box.style.setProperty('--sun-y', `${(1 - e) * 70 + 18}%`);
+  sun.box.style.setProperty('--sun-glow', sunColour(Math.min(1, e * 1.15)));
+  sun.box.classList.toggle('day', e > 0.62);
+  const x = $('sun-time');
+  if (x) x.textContent = hhmm(now());
+}
+
+function hideSun() {
+  if (!sun) return;
+  clearInterval(sun.timer);
+  sun.box.remove();
+  sun.wake?.release().catch(() => {});
+  sun = null;
+}
+
+function checkSunrise(t) {
+  if (sun?.demo) return;
+  let want = null;
+  for (const a of alarms()) {
+    if (!a.enabled || !a.light || a.snoozeAt) continue;
+    const at = nextRing(a, t);
+    if (!at || a.lightSkip === at) continue;
+    const start = at - (a.lightMin || 30) * 60000;
+    if (t >= start && t < at && (!want || at < want.at)) want = { a, at, start, end: at };
+  }
+  if (want && (!sun || sun.at !== want.at)) showSun(want);
+  else if (!want && sun && !isRinging()) hideSun();
+  else if (sun) drawSun();
+}
+
+function previewSunrise() {
+  unlockAudio();
+  const t = Date.now();
+  showSun({ a: null, at: t + 60000, start: t, end: t + 60000, demo: true });
 }
 
 /* ---------- Bedside mode ---------- */
@@ -143,12 +225,11 @@ function startBedside() {
     el('div', { class: 'bs-next', id: 'bs-next' }, ''),
     el('button', { type: 'button', class: 'bs-exit', onclick: stopBedside }, 'Exit bedside mode'));
   document.body.append(bedside);
-  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { wake = w; }).catch(() => {});
+  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { bedWake = w; }).catch(() => {});
   const draw = () => {
-    const t = now();
-    $('bs-time').textContent = hhmm(t);
+    $('bs-time').textContent = hhmm(now());
     const n = nextAlarm();
-    $('bs-next').textContent = n ? `⏰ ${hhmm(n.at)} · ${n.a.label || 'Alarm'}` : 'No alarm set';
+    $('bs-next').textContent = n ? `${n.a.light ? '🌅' : '⏰'} ${hhmm(n.at)} · ${n.a.label || 'Alarm'}` : 'No alarm set';
   };
   draw();
   bedTimer = setInterval(draw, 5000);
@@ -156,7 +237,7 @@ function startBedside() {
 function stopBedside() {
   clearInterval(bedTimer);
   bedside?.remove(); bedside = null;
-  if (wake) { wake.release().catch(() => {}); wake = null; }
+  if (bedWake) { bedWake.release().catch(() => {}); bedWake = null; }
 }
 
 /* ---------- Clock tab line ---------- */
@@ -165,14 +246,85 @@ function updateClockLine() {
   if (!line) return;
   const n = nextAlarm();
   line.hidden = !n;
-  if (n) line.textContent = `⏰ ${n.a.snoozeAt ? 'Snoozed until' : 'Alarm'} ${hhmm(n.at)} (in ${inText(n.at - now())}) · keep the app open`;
+  if (n) line.textContent = `${n.a.light ? '🌅' : '⏰'} ${n.a.snoozeAt ? 'Snoozed until' : 'Alarm'} ${hhmm(n.at)} (in ${inText(n.at - now())}) · keep the app open`;
 }
 
+/* ---------- Sunrise location ---------- */
+function chooseSunPlace(after) {
+  const useGps = async () => {
+    toast('Finding your location…');
+    try {
+      const pos = await getPosition();
+      const town = await nearestTown(pos.lat, pos.lon);
+      d().sunPlace = { name: town.town || 'Your location', region: town.region || '', lat: pos.lat, lon: pos.lon, gps: true };
+      store.save(); toast('Location saved'); after?.();
+    } catch (e) { toast(e.message || 'Could not get your location'); after?.(); }
+  };
+  placeSearchModal({
+    title: 'Where do you wake up?',
+    onPick: (p) => { d().sunPlace = { name: p.name, region: placeLabel(p), lat: p.lat, lon: p.lon }; store.save(); after?.(); },
+    extraActions: [{ label: '📍 Use my location', onClick: () => { setTimeout(useGps, 0); } }],
+    onCancel: () => after?.(),
+  });
+}
+
+function placeText(p) { return p ? `${p.name}${p.region ? ', ' + p.region : ''}` : 'not set'; }
+
 /* ---------- Editor ---------- */
-function editAlarm(a) {
+const offText = (m) => (m === 0 ? 'At sunrise' : `${Math.abs(m)} min ${m < 0 ? 'before' : 'after'} sunrise`);
+
+function editAlarm(bank, a, saved) {
   const isNew = !a;
-  const draft = a ? { ...a, days: [...(a.days || [])] } : { time: '07:00', label: '', days: [0, 1, 2, 3, 4], sound: 'beeps', enabled: true };
+  const draft = saved || (a ? { ...a, days: [...(a.days || [])] }
+    : { time: '07:00', label: '', days: [0, 1, 2, 3, 4], sound: 'soft', enabled: true, mode: 'time', offset: 0, latest: '', light: true, lightMin: 30 });
+  draft.sound = normTone(draft.sound);
+  draft.mode ||= 'time';
+  draft.lightMin ||= 30;
+
   const timeIn = el('input', { type: 'time', class: 'input alarm-time-in', value: draft.time });
+  const offSel = el('select', { class: 'input' }, OFFSETS.map((m) => el('option', { value: m, selected: (draft.offset || 0) === m }, offText(m))));
+  const latestOn = el('input', { type: 'checkbox', class: 'check', checked: !!draft.latest });
+  const latestIn = el('input', { type: 'time', class: 'input', value: draft.latest || '07:30' });
+  const sunPreview = el('div', { class: 'sun-preview' });
+  const readDraft = () => {
+    draft.time = timeIn.value || draft.time;
+    draft.offset = Number(offSel.value);
+    draft.latest = latestOn.checked ? latestIn.value : '';
+    draft.label = labelIn.value.trim();
+    draft.sound = tone.select.value;
+    draft.light = lightOn.checked;
+    draft.lightMin = Number(lightSel.value);
+    return draft;
+  };
+  const updSun = () => {
+    readDraft();
+    const p = sunPlace();
+    sunPreview.innerHTML = '';
+    if (!p) { sunPreview.append(el('span', { class: 'warn-text' }, 'Set your location so the alarm can follow the sunrise.')); return; }
+    const tmr = new Date(now()); tmr.setDate(tmr.getDate() + 1);
+    const r = sunriseOn(tmr, p);
+    if (!r) { sunPreview.append(el('span', { class: 'warn-text' }, 'The sun doesn’t rise there at this time of year — choose a set time instead.')); return; }
+    const at = ringOnDay({ ...draft, mode: 'sunrise' }, tmr);
+    sunPreview.append(`Tomorrow: sunrise ${hhmm(r)} → alarm at `, el('b', {}, hhmm(at)), draft.light ? `, light from ${hhmm(at - draft.lightMin * 60000)}` : '');
+  };
+  const timeBox = el('div', { class: 'mode-box' }, timeIn);
+  const sunBox = el('div', { class: 'mode-box' },
+    el('label', { class: 'field' }, el('span', {}, 'Ring'), offSel),
+    el('label', { class: 'field check-field' }, latestOn, el('span', {}, 'But never later than')), latestIn,
+    el('div', { class: 'sun-loc' }, el('span', {}, '📍 ', placeText(sunPlace())),
+      el('button', { type: 'button', class: 'btn sm', onclick: () => { readDraft(); chooseSunPlace(() => editAlarm(bank, a, draft)); } }, sunPlace() ? 'Change' : 'Set location')),
+    sunPreview);
+  const segBtns = [['time', 'Set time'], ['sunrise', '☀ Real sunrise']].map(([m, l]) => {
+    const b = el('button', { type: 'button', class: 'seg-btn' + (draft.mode === m ? ' active' : ''), onclick: () => {
+      draft.mode = m; segBtns.forEach((x) => x.classList.toggle('active', x === b));
+      timeBox.hidden = m !== 'time'; sunBox.hidden = m !== 'sunrise'; updSun();
+    } }, l);
+    return b;
+  });
+  timeBox.hidden = draft.mode !== 'time'; sunBox.hidden = draft.mode !== 'sunrise';
+  [offSel, latestOn, latestIn].forEach((x) => x.addEventListener('change', updSun));
+  latestIn.addEventListener('focus', () => { latestOn.checked = true; });
+
   const labelIn = el('input', { type: 'text', class: 'input', value: draft.label || '', placeholder: 'Label (optional), e.g. Work' });
   const dayBtns = DAYS.map((name, i) => {
     const b = el('button', { type: 'button', class: 'day-chip' + (draft.days.includes(i) ? ' on' : ''), onclick: () => {
@@ -181,28 +333,43 @@ function editAlarm(a) {
     } }, name.slice(0, 2));
     return b;
   });
-  const soundSel = el('select', { class: 'input' }, SOUNDS.map(([v, l]) => el('option', { value: v, selected: draft.sound === v }, l)));
+  const tone = toneField(draft.sound);
+  const lightOn = el('input', { type: 'checkbox', class: 'switch', checked: !!draft.light, onchange: updSun });
+  const lightSel = el('select', { class: 'input', onchange: updSun }, LIGHT_MINS.map((m) => el('option', { value: m, selected: draft.lightMin === m }, `Starts ${m} min before the alarm`)));
+  updSun();
+
   openModal({
-    title: isNew ? 'New alarm' : 'Edit alarm',
+    title: `Alarm ${bank + 1}`,
+    className: 'tall',
+    onClose: stopPreview,
     content: [
-      timeIn,
+      el('div', { class: 'seg' }, segBtns),
+      timeBox, sunBox,
+      el('div', { class: 'light-box' },
+        el('div', { class: 'light-head' }, el('span', {}, '🌅 Sunrise wake light'), lightOn),
+        el('p', { class: 'muted small' }, 'The screen glows from deep red to warm white, like a sunrise lamp, so you wake gently before the sound.'),
+        lightSel,
+        el('button', { type: 'button', class: 'link-btn', onclick: previewSunrise }, 'Preview the sunrise (1 minute)')),
       el('label', { class: 'field' }, el('span', {}, 'Repeat (none selected = once)'), el('div', { class: 'day-chips' }, dayBtns)),
       el('label', { class: 'field' }, el('span', {}, 'Label'), labelIn),
-      el('label', { class: 'field' }, el('span', {}, 'Sound'), el('div', { class: 'row-sound' }, soundSel,
-        el('button', { type: 'button', class: 'btn sm', onclick: () => preview(soundSel.value) }, '▶ Play'))),
+      tone,
     ],
     actions: [
-      ...(isNew ? [] : [{ label: 'Delete', kind: 'danger', onClick: () => { setTimeout(async () => {
-        if (await confirmModal('Delete this alarm?', '', 'Delete', true)) { d().alarms = alarms().filter((x) => x.id !== a.id); store.save(); render(); updateClockLine(); }
+      ...(isNew ? [] : [{ label: 'Clear', kind: 'danger', onClick: () => { setTimeout(async () => {
+        if (await confirmModal(`Clear alarm ${bank + 1}?`, 'The bank will be empty and ready to set again.', 'Clear', true)) { d().alarms = alarms().filter((x) => x !== a); store.save(); render(); updateClockLine(); }
       }, 0); } }]),
       { label: 'Cancel' },
       { label: 'Save', kind: 'primary', onClick: () => {
-        if (!/^\d{2}:\d{2}$/.test(timeIn.value)) { toast('Choose a time'); return false; }
-        const out = { ...draft, time: timeIn.value, label: labelIn.value.trim(), sound: soundSel.value, enabled: true, snoozeAt: null, snoozed: false };
-        if (isNew) alarms().push({ id: store.uid(), ...out }); else Object.assign(a, out);
+        readDraft();
+        if (draft.mode === 'time' && !/^\d{2}:\d{2}$/.test(draft.time)) { toast('Choose a time'); return false; }
+        if (draft.mode === 'sunrise' && !sunPlace()) { toast('Set your location first'); return false; }
+        const out = { ...draft, bank, enabled: true, snoozeAt: null, snoozed: false, lightSkip: null };
+        let target = a;
+        if (isNew) { target = { id: store.uid(), ...out }; alarms().push(target); } else Object.assign(a, out);
         store.save(); unlockAudio(); render(); updateClockLine();
-        const n = nextRing(isNew ? alarms()[alarms().length - 1] : a);
+        const n = nextRing(target);
         if (n) toast(`Alarm in ${inText(n - now())}`);
+        else if (draft.mode === 'sunrise') toast('No sunrise in the next week there');
       } },
     ],
   });
@@ -218,35 +385,95 @@ function daysText(a) {
   return ds.map((i) => DAYS[i]).join(', ');
 }
 
+function alarmRow(a) {
+  const n = nextRing(a);
+  const sw = el('input', { type: 'checkbox', class: 'switch', checked: !!a.enabled, 'aria-label': 'Alarm on', onchange: (e) => {
+    a.enabled = e.target.checked; a.snoozeAt = null; a.lightSkip = null; store.save(); unlockAudio(); render(); updateClockLine();
+  } });
+  const sunMode = a.mode === 'sunrise';
+  const big = sunMode ? (n ? hhmm(n) : '☀ --:--') : a.time;
+  const bits = [a.label, daysText(a),
+    sunMode ? offText(a.offset || 0) + (a.latest ? `, by ${a.latest}` : '') : null,
+    a.light ? `🌅 ${a.lightMin || 30} min light` : null,
+    TONE_SHORT[normTone(a.sound)],
+    a.enabled && n ? `in ${inText(n - now())}` : null];
+  return el('div', { class: 'alarm-row' + (a.enabled ? '' : ' off') },
+    el('span', { class: 'bank-no' }, a.bank >= 0 ? String(a.bank + 1) : '•'),
+    el('button', { type: 'button', class: 'alarm-main', onclick: () => editAlarm(a.bank >= 0 ? a.bank : 0, a) },
+      el('div', { class: 'alarm-t' }, sunMode ? el('span', { class: 'sun-tag' }, '☀') : null, big),
+      el('div', { class: 'muted small' }, bits.filter(Boolean).join(' · '))),
+    sw);
+}
+
+function renderAlarms(box) {
+  const rows = [];
+  for (let b = 0; b < BANKS; b++) {
+    const a = inBank(b);
+    rows.push(a ? alarmRow(a) : el('button', { type: 'button', class: 'alarm-row empty-bank', onclick: () => editAlarm(b, null) },
+      el('span', { class: 'bank-no' }, String(b + 1)), el('span', { class: 'muted' }, 'Empty — tap to set an alarm'), el('span', { class: 'plus' }, '＋')));
+  }
+  const others = alarms().filter((a) => a.bank === -1);
+  const p = sunPlace();
+  box.append(
+    el('div', { class: 'notice warn' }, el('b', {}, 'Keep the app open for alarms. '),
+      'iPhone pauses web apps when the screen locks, so alarms, the wake light and timers only work while this app is open on screen. At night, use ', el('b', {}, 'Bedside mode'), ' with the phone on charge.'),
+    el('div', { class: 'card' },
+      el('h2', { class: 'card-title' }, 'Alarm banks ', el('span', { class: 'muted small' }, 'your 5 saved alarms — switch on the ones you need')),
+      el('div', { class: 'alarm-list' }, rows),
+      others.length ? [el('h3', { class: 'sub-title' }, 'Other alarms'), el('div', { class: 'alarm-list' }, others.map(alarmRow))] : null),
+    el('button', { type: 'button', class: 'btn primary wide bedside-btn', onclick: startBedside }, '🌙 Bedside mode'),
+    el('p', { class: 'muted small center' }, 'A dim clock showing your next alarm. Tap it to brighten; tap “Exit” to leave. Turn the volume up and touch the screen once so sound is allowed.'),
+    el('div', { class: 'card sun-card' },
+      el('h2', { class: 'card-title' }, '🌅 Sunrise wake-up'),
+      el('p', { class: 'small' }, 'Sunrise alarm clocks copy the dawn: the light builds slowly for half an hour or so before the alarm. Gradual morning light is the body’s natural cue to wake — it helps switch off the sleep hormone melatonin and lift cortisol, so you surface from sleep gently instead of being jolted awake.'),
+      el('p', { class: 'small' }, 'Each alarm can use the wake light, and can ring at a ', el('b', {}, 'set time'), ' or at the ', el('b', {}, 'real sunrise'), ' where you are (with “never later than” for dark winter mornings).'),
+      el('ul', { class: 'plain-list small muted' },
+        el('li', {}, 'Before bed, turn the screen brightness up and switch off Night Shift / Auto-Brightness if you can — the screen stays black until the sunrise starts.'),
+        el('li', {}, 'Stand the phone facing you, a little way from your pillow.')),
+      el('div', { class: 'sun-loc' }, el('span', {}, '📍 Sunrise location: ', el('b', {}, placeText(p)), p?.fromWeather ? ' (from Weather)' : ''),
+        el('button', { type: 'button', class: 'btn sm', onclick: () => chooseSunPlace(render) }, p && !p.fromWeather ? 'Change' : 'Set')),
+      p ? sunToday(p) : null,
+      el('button', { type: 'button', class: 'btn wide', onclick: previewSunrise }, 'Preview the sunrise (1 minute)')));
+}
+
+function sunToday(p) {
+  const t = new Date(now()), tm = new Date(t); tm.setDate(tm.getDate() + 1);
+  const a = sunriseOn(t, p), b = sunriseOn(tm, p);
+  return el('p', { class: 'muted small' }, a || b ? `Sunrise today ${a ? hhmm(a) : '—'} · tomorrow ${b ? hhmm(b) : '—'}` : 'No sunrise there at this time of year.');
+}
+
+function view() { const v = d().alarmView; return VIEWS.some(([k]) => k === v) ? v : 'alarms'; }
+
 function render() {
   const box = $('tool-alarm-body');
   if (!box) return;
+  stopPreview();
   box.innerHTML = '';
-  const list = [...alarms()].sort((x, y) => x.time.localeCompare(y.time));
-  box.append(
-    el('div', { class: 'notice warn' }, el('b', {}, 'Keep the app open for alarms. '),
-      'iPhone pauses web apps when the screen locks, so alarms only ring while this app is open on screen. At night, use ', el('b', {}, 'Bedside mode'), ' with the phone on charge — the screen stays on, very dim.'),
-    el('div', { class: 'card' },
-      list.length ? el('div', { class: 'alarm-list' }, list.map((a) => {
-        const n = nextRing(a);
-        const sw = el('input', { type: 'checkbox', class: 'switch', checked: !!a.enabled, 'aria-label': 'Alarm on', onchange: (e) => {
-          a.enabled = e.target.checked; a.snoozeAt = null; store.save(); unlockAudio(); render(); updateClockLine();
-        } });
-        return el('div', { class: 'alarm-row' + (a.enabled ? '' : ' off') },
-          el('button', { type: 'button', class: 'alarm-main', onclick: () => editAlarm(a) },
-            el('div', { class: 'alarm-t' }, a.time),
-            el('div', { class: 'muted small' }, [a.label, daysText(a), n ? `in ${inText(n - now())}` : null].filter(Boolean).join(' · '))),
-          sw);
-      })) : el('p', { class: 'muted' }, 'No alarms yet.'),
-      el('button', { type: 'button', class: 'btn primary wide', onclick: () => editAlarm(null) }, '＋ Add alarm')),
-    el('button', { type: 'button', class: 'btn wide bedside-btn', onclick: startBedside }, '🌙 Bedside mode'),
-    el('p', { class: 'muted small center' }, 'Bedside mode shows a dim clock and your next alarm. Tap it to brighten; tap “Exit” to leave. Turn the volume up and touch the screen once so sound is allowed.'));
+  const v = view();
+  box.append(el('div', { class: 'alarm-nav', role: 'tablist' }, VIEWS.map(([k, icon, label]) =>
+    el('button', { type: 'button', role: 'tab', class: 'anav-btn' + (k === v ? ' active' : ''), 'aria-selected': String(k === v), onclick: () => {
+      d().alarmView = k; store.save(); unlockAudio(); render();
+    } }, el('span', { class: 'anav-icon' }, icon), el('span', {}, label)))));
+  const body = el('div', { class: 'alarm-view' });
+  box.append(body);
+  liveUpdate = null;
+  if (v === 'alarms') renderAlarms(body);
+  else liveUpdate = timers.renderView(v, body, render);
 }
 
+function show() {
+  panelOpen = true;
+  render();
+  clearInterval(liveTimer);
+  liveTimer = setInterval(() => { if (liveUpdate) liveUpdate(); }, 100);
+}
+function hide() { panelOpen = false; clearInterval(liveTimer); liveTimer = null; liveUpdate = null; stopPreview(); }
+
 export function register({ registerTool }) {
-  registerTool({ id: 'alarm', title: 'Alarm', icon: '⏰', desc: 'Alarms + bedside mode', panel: 'alarm', show: render, order: 5 });
+  registerTool({ id: 'alarm', title: 'Alarm & timers', icon: '⏰', desc: 'Sunrise alarms, timers, stopwatch, eggs, meds', panel: 'alarm', show, hide, order: 5 });
   const slot = $('zone-slot');
-  if (slot && !$('alarm-line')) slot.after(el('button', { type: 'button', id: 'alarm-line', class: 'alarm-line', hidden: true, onclick: () => { location.hash = 'tools/alarm'; } }));
+  if (slot && !$('alarm-line')) slot.after(el('button', { type: 'button', id: 'alarm-line', class: 'alarm-line', hidden: true, onclick: () => { d().alarmView = 'alarms'; location.hash = 'tools/alarm'; } }));
+  timers.init(() => { if (panelOpen) render(); });
   setInterval(check, 500);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
   updateClockLine();
