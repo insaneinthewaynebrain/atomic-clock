@@ -490,3 +490,26 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 @media (min-width: 700px) {
   .wrist-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 20px; align-items: start; }
 }
+
+/* ================= Stage 3: Accuracy grades ================= */
+.pos-select { margin-top: 8px; font-size: 15px; color: var(--muted); }
+.grade { margin-top: 12px; }
+.grade-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.grade-badge { font-weight: 800; font-size: 15px; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); min-width: 0; }
+.grade-badge.good { color: var(--green); border-color: rgba(52,211,153,.6); background: rgba(52,211,153,.08); }
+.grade-badge.mid { color: var(--amber); border-color: rgba(251,191,36,.6); background: rgba(251,191,36,.08); }
+.grade-badge.badr { color: var(--red); border-color: rgba(248,113,113,.6); background: rgba(248,113,113,.08); }
+.grade-list { margin-top: 8px; }
+.grade-list summary { color: var(--accent); font-weight: 600; font-size: 14px; cursor: pointer; padding: 4px 0; }
+.grade-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
+.grade-mark { font-weight: 900; width: 18px; flex: none; }
+.grade-mark.good { color: var(--green); } .grade-mark.badr { color: var(--red); }
+.grade-name { min-width: 0; font-size: 14px; font-weight: 600; }
+.pos-table { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.pos-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 8px 10px; border-top: 1px solid var(--line); font-size: 14px; }
+.pos-row:first-child { border-top: 0; }
+.pos-row .muted { grid-column: 1 / -1; }
+.pos-rate { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.pos-rate.good { color: var(--green); } .pos-rate.mid { color: var(--amber); } .pos-rate.badr { color: var(--red); }
+.advice { font-size: 14px; margin: 8px 0 0; padding: 10px; border-radius: 10px; background: rgba(76,194,255,.08); border: 1px solid rgba(76,194,255,.3); }
+.share-preview { width: 100%; border-radius: 12px; display: block; }

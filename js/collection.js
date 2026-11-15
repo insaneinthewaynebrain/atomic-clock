@@ -2,7 +2,7 @@
 import * as store from './store.js';
 import { el, openModal, confirmModal, toast } from './ui.js';
 import { addPhoto, deletePhoto, fillImg } from './photos.js';
-import { watchStats, fmtRate } from './accuracy.js';
+import { watchStats, fmtRate, grade } from './accuracy.js';
 
 /* ---------- Reference lists ---------- */
 export const MOVEMENTS = [
@@ -317,6 +317,7 @@ export function openWatchDetail(w) {
     fact('Sold', w.status === 'sold' ? [w.soldDate ? new Date(w.soldDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null, w.soldPrice != null ? money(w.soldPrice) : null, w.soldTo].filter(Boolean).join(' · ') : null),
     fact('Profit / loss', w.status === 'sold' && soldPL != null ? `${soldPL >= 0 ? '+' : '−'}${money(Math.abs(soldPL))}` : null),
     fact('Accuracy', st.overall != null ? `${fmtRate(st.overall)} (average)` : null),
+    (() => { const g = grade(w, st); return g.ready ? fact('Grade', g.headline) : null; })(),
     fact('Days worn', w.status === 'owned' && daysWorn(w.id) ? daysWorn(w.id) : null),
     serialFact,
     ...(detailExtras.map((f) => f(w))),

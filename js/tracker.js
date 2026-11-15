@@ -2,7 +2,8 @@
 import * as store from './store.js';
 import { now, clock, isFresh } from './time.js';
 import { el, confirmModal, toast, signed, fmtDuration, fmtDateTime } from './ui.js';
-import { computeRun, watchStats, fmtOffset, fmtRate } from './accuracy.js';
+import { computeRun, watchStats, fmtOffset, fmtRate, grade, fmtRange, POSITIONS, posLabel, positionRates, restingAdvice } from './accuracy.js';
+import { openShareCard } from './sharecard.js';
 import { openWatchEditor, ownedWatches } from './collection.js';
 
 const DAY = 86400000;
@@ -43,10 +44,11 @@ async function deleteWatch(w) {
 }
 
 // Mark: save the chosen +/- seconds against the exact synced time of the tap.
-function mark(w, sign, secs) {
+function mark(w, sign, secs, pos) {
   const s = stamp();
   const offset = sign * secs;
   const reading = { id: store.uid(), offset, ...s };
+  if (pos) reading.pos = pos;
   const runs = w.runs.filter((r) => r.readings.length);
   if (!runs.length) w.runs.push({ id: store.uid(), readings: [reading] });
   else {
@@ -72,6 +74,27 @@ async function deleteReading(w, runId, readingId) {
 }
 
 /* ---------- Render ---------- */
+
+function gradeBlock(w, st) {
+  const g = grade(w, st);
+  const box = el('div', { class: 'grade' });
+  if (!g.ready) {
+    box.append(el('div', { class: 'muted small' }, '🏅 Accuracy grade appears after a day or more of marks.'));
+    return box;
+  }
+  const rows = [...g.stds, ...(g.spec ? [g.spec] : [])];
+  box.append(
+    el('div', { class: 'grade-head' },
+      el('span', { class: 'grade-badge ' + g.level }, (g.level === 'good' ? '✓ ' : g.level === 'badr' ? '✗ ' : '') + g.headline),
+      el('button', { type: 'button', class: 'btn sm', onclick: () => openShareCard(w) }, '📤 Share')),
+    rows.length ? el('details', { class: 'grade-list' },
+      el('summary', {}, 'Compare with standards'),
+      rows.map((r) => el('div', { class: 'grade-row' },
+        el('span', { class: 'grade-mark ' + (r.pass ? 'good' : 'badr') }, r.pass ? '✓' : '✗'),
+        el('span', { class: 'grade-name' }, r.name, el('span', { class: 'muted small' }, ` ${fmtRange(r)}`), el('div', { class: 'muted small' }, r.src)))),
+      el('p', { class: 'muted small' }, 'Certification tests are done in a laboratory; your figure is real-world wear, so treat the grade as a guide.')) : null);
+  return box;
+}
 
 function stat(label, value, sub, cls = '') {
   return el('div', { class: 'stat ' + cls }, el('div', { class: 'stat-label' }, label), el('div', { class: 'stat-value' }, value), sub ? el('div', { class: 'stat-sub' }, sub) : null);
@@ -109,9 +132,13 @@ export function render() {
     el('option', { value: '1' }, '+'), el('option', { value: '-1' }, '\u2212'));
   const secSel = el('select', { class: 'input mark-secs', 'aria-label': 'Seconds' },
     Array.from({ length: 61 }, (_, i) => el('option', { value: String(i) }, `${i} s`)));
+  const posSel = el('select', { class: 'input pos-select', 'aria-label': 'How the watch rested since the last mark' },
+    el('option', { value: '' }, 'Position since last mark (optional)'),
+    POSITIONS.map(([v, lab]) => el('option', { value: v }, lab)));
   box.append(
     el('div', { class: 'mark-row' }, signSel, secSel,
-      el('button', { type: 'button', class: 'btn primary mark-btn', onclick: () => mark(w, Number(signSel.value), Number(secSel.value)) }, 'Mark')),
+      el('button', { type: 'button', class: 'btn primary mark-btn', onclick: () => mark(w, Number(signSel.value), Number(secSel.value), posSel.value) }, 'Mark')),
+    posSel,
     el('p', { class: 'muted small mark-help' }, '+ = watch ahead of the clock (fast), \u2212 = behind (slow).'));
 
   const st = watchStats(w);
@@ -125,6 +152,16 @@ export function render() {
     stat('Since last mark', fmtRate(st.lastRate), st.lastElapsed ? `${signed(latest.gain)} s in ${fmtDuration(st.lastElapsed)}` : 'needs 2 marks'),
     stat('Average per day', fmtRate(st.overall), st.overallDays > 0 ? `over ${fmtDuration(st.overallDays * DAY)}` : 'needs 2 marks', rateClass(st.overall)),
     stat('Total drift', sinceFirst != null ? `${fmtSignedSecs(sinceFirst)}` : '—', sinceFirst != null ? `${sinceFirst >= 0 ? 'gained' : 'lost'} since first mark (${fmtSignedSecs(first.offset)})` : 'needs 2 marks')));
+
+  box.append(gradeBlock(w, st));
+  const pr = positionRates(w);
+  if (pr.length) {
+    const adv = restingAdvice(pr);
+    box.append(el('h3', { class: 'sub-title' }, 'Rate by position'),
+      el('div', { class: 'pos-table' }, pr.map((r) => el('div', { class: 'pos-row' },
+        el('span', {}, r.label), el('span', { class: 'pos-rate ' + rateClass(r.rate) }, fmtRate(r.rate)), el('span', { class: 'muted small' }, `${r.n}× · ${fmtDuration(r.days * DAY)}`)))),
+      adv ? el('p', { class: 'advice' }, '💡 ', adv) : null);
+  }
 
   if (st.overall != null && Math.abs(st.overall) > d.thresholds.amber) {
     box.append(el('p', { class: 'service-note' }, `Averaging more than \u00b1${d.thresholds.amber} s/day \u2014 a service may be due.`));
@@ -143,7 +180,7 @@ export function render() {
         el('div', { class: 'hist-main' },
           el('div', { class: 'hist-when' }, fmtDateTime(r.t), r.synced ? null : el('span', { class: 'unsynced', title: 'Marked without network sync' }, ' \u26a0\ufe0e')),
           el('div', { class: 'hist-off' }, `${fmtSignedSecs(r.offset)} `, el('span', { class: 'muted small' }, fmtOffset(r.offset))),
-          el('div', { class: 'hist-rate muted small' }, rateTxt)),
+          el('div', { class: 'hist-rate muted small' }, rateTxt + (r.pos ? ` · ${posLabel(r.pos)}` : ''))),
         el('button', { type: 'button', class: 'icon-btn sm danger', 'aria-label': 'Delete mark', onclick: () => deleteReading(w, run.id, r.id) }, '\u00d7')));
     });
   });
