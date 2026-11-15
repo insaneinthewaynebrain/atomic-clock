@@ -398,6 +398,7 @@ textarea.input { resize: vertical; min-height: 80px; line-height: 1.4; }
 .wc-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wc-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wc-line { font-size: 13px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.wc-status { font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Watch form */
 .wform .sub-title { margin-top: 16px; }
@@ -486,6 +487,17 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 @media (min-width: 700px) {
   .wrist-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 20px; align-items: start; }
 }
+
+/* Wrist features inside the Watch Box */
+.box-wrist { margin-bottom: 12px; }
+.box-wrist > .card { margin-top: 12px; }
+.wear-fold > summary { color: var(--accent); font-weight: 700; cursor: pointer; padding: 2px 0; }
+.wear-fold[open] > summary { margin-bottom: 10px; }
+.wear-fold .card { background: transparent; border: 0; padding: 0; margin: 0 0 14px; box-shadow: none; }
+.wrist-panel { margin-top: 8px; }
+.wrist-panel .wear-row { border-top: 0; }
+.wear-hist { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.wrist-panel .link-btn { margin-top: 4px; }
 
 /* ================= Stage 3: Accuracy grades ================= */
 .pos-select { margin-top: 8px; font-size: 15px; color: var(--muted); }

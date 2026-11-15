@@ -18,7 +18,7 @@ import * as insurance from './insurance.js';
 import * as timegrapher from './timegrapher.js';
 import * as alarm from './alarm.js';
 
-export const APP_VERSION = '35';
+export const APP_VERSION = '36';
 
 // Feature modules that register their own tabs/tools.
 const EXTRA_MODULES = [wrist, setting, insurance, timegrapher, alarm];
@@ -30,7 +30,7 @@ const TABS = {
 };
 let currentTab = null;
 
-/** Other stages add tabs here (e.g. Wrist). */
+/** Other stages add tabs here. */
 export function registerTab(name, def) {
   TABS[name] = def;
   const b = document.querySelector(`.tabbtn[data-tab="${name}"]`);
@@ -82,8 +82,11 @@ async function init() {
   initCountdown();
 
   startSync();
+  // Old links: the Wrist tab now lives inside the Watch Box.
+  const ALIAS = { wrist: 'collection', watchbox: 'collection' };
   const route = () => {
-    const [tab, sub] = location.hash.slice(1).split('/');
+    let [tab, sub] = location.hash.slice(1).split('/');
+    if (ALIAS[tab]) { tab = ALIAS[tab]; history.replaceState(null, '', '#' + tab); }
     switchTab(TABS[tab] ? tab : 'clock', sub);
   };
   route();

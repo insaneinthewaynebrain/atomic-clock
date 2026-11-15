@@ -6,9 +6,11 @@ A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouT
 - **Clock**: network-synced time to the millisecond for setting watches, plus an accuracy tracker
   (+/− seconds and Mark), grades against COSC / METAS / Rolex / Grand Seiko and movement specs,
   position testing, and shareable result cards.
-- **Collection**: watches, wishlist, sold/traded, photos, values and a collection summary.
-- **Wrist**: what you're wearing, a wear calendar and stats, power-reserve countdowns, and service,
-  warranty and battery reminders.
+- **Watch Box**: the main home for the collection — as many watches as you like, plus wishlist and
+  sold/traded, photos, values and a summary. What's on your wrist, service/warranty/battery reminders and
+  a wear calendar with stats sit at the top; each watch's own page has its wrist panel (wear now / taken
+  off, power-reserve countdown with "Wound", recent wears, log a past wear). This replaces the old
+  Collection and Wrist tabs (old `#wrist` links open the Watch Box).
 - **Tools**: set to the minute (countdown with beeps), date-change danger zone, moon phase, GMT helper,
   experimental microphone timegrapher, insurance list (PDF) and CSV export, world clock, weather,
   currency, backup & settings, and About.

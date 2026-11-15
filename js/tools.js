@@ -144,7 +144,7 @@ function renderAbout() {
   box.append(
     el('div', { class: 'card' },
       el('h2', { class: 'card-title' }, APP_NAME),
-      el('p', {}, `${APP_NAME} is a free app for watch collectors: an exact, network-synced clock for setting your watches; an accuracy tracker; your collection, wishlist and wear history; and handy tools for setting dates, moonphases and GMT hands.`),
+      el('p', {}, `${APP_NAME} is a free app for watch collectors: an exact, network-synced clock for setting your watches; an accuracy tracker; your Watch Box (as many watches as you like, each with its own wear history and power reserve), wishlist and sold watches; and handy tools for setting dates, moonphases and GMT hands.`),
       el('p', {}, 'Made with the ', el('a', { href: CHANNEL_URL, target: '_blank', rel: 'noopener', class: 'channel-link' }, `${CHANNEL_NAME} YouTube channel`), ' — come and say hello.')),
     el('div', { class: 'card' },
       el('h2', { class: 'card-title' }, 'Your data stays on your phone'),

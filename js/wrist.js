@@ -1,8 +1,9 @@
-// Wrist tab: what's on the wrist, wear history, power-reserve countdowns, reminders.
+// Wrist features, built into the Watch Box and each watch's own page (there's no separate Wrist tab any more):
+// what's on the wrist, wear history and calendar, power-reserve countdowns, service/warranty/battery reminders.
 import * as store from './store.js';
 import { now } from './time.js';
 import { el, openModal, confirmModal, toast, pad, fmtDuration } from './ui.js';
-import { FORM, detailExtras, ownedWatches, getWatch } from './collection.js';
+import { FORM, detailExtras, detailSections, cardLines, boxSections, ownedWatches, getWatch, openWatchDetail } from './collection.js';
 import { fillImg } from './photos.js';
 import { backupDue, exportBackup } from './backup.js';
 
@@ -11,10 +12,8 @@ const PALETTE = ['#4cc2ff', '#fbbf24', '#34d399', '#f472b6', '#a78bfa', '#fb923c
 const NOT_WORN_DAYS = 30;
 
 const d = () => store.get();
-const root = () => document.getElementById('wrist');
-let visible = false;
 let monthOffset = 0;        // calendar: 0 = this month
-let timer = null;
+let wearOpen = false;       // Watch Box: wear calendar & stats folded open?
 let api = null;
 
 /* ---------- Service fields added to the watch form ---------- */
@@ -126,7 +125,7 @@ function remindersCard(list) {
 }
 
 function updateBadge() {
-  const b = document.querySelector('.tabbtn[data-tab="wrist"] .tab-badge');
+  const b = document.querySelector('.tabbtn[data-tab="collection"] .tab-badge');
   if (b) b.hidden = reminders().length === 0;
   const line = document.getElementById('clock-reminders');
   if (line) {
@@ -140,7 +139,7 @@ function updateBadge() {
 function pickWatch(title, onPick, filter = () => true) {
   const list = ownedWatches().filter(filter);
   if (!list.length) {
-    openModal({ title, content: el('p', {}, 'Add a watch to your collection first.'), actions: [{ label: 'OK', kind: 'primary', onClick: () => api && api.switchTab('collection') }] });
+    openModal({ title, content: el('p', {}, 'Add a watch to your Watch Box first.'), actions: [{ label: 'OK', kind: 'primary', onClick: () => api && api.switchTab('collection') }] });
     return;
   }
   const m = openModal({
@@ -155,13 +154,13 @@ function pickWatch(title, onPick, filter = () => true) {
   });
 }
 
-function wearToday() {
-  pickWatch('Wearing today', (w) => {
-    if (onWrist().some((e) => e.watchId === w.id)) { toast(`${w.name} is already on your wrist`); return; }
-    d().wear.push({ id: store.uid(), watchId: w.id, on: Math.round(now()), off: null });
-    store.save(); toast(`Enjoy the ${w.name}`); refreshAll();
-  });
+function putOn(w) {
+  if (onWrist().some((e) => e.watchId === w.id)) { toast(`${w.name} is already on your wrist`); return; }
+  d().wear.push({ id: store.uid(), watchId: w.id, on: Math.round(now()), off: null });
+  store.save(); toast(`Enjoy the ${w.name}`); refreshAll();
 }
+
+function wearToday() { pickWatch('Wearing today', putOn); }
 
 function takeOff(e) {
   e.off = Math.round(now());
@@ -174,34 +173,41 @@ function takeOff(e) {
 
 function wound(w) {
   w.woundAt = Date.now();
-  store.save(); store.emit('watches');
+  store.save();
   toast(`${w.name}: full power reserve (${w.powerReserve} h)`);
   refreshAll();
 }
 
-async function deleteEntry(e) {
-  if (!(await confirmModal('Delete this wear entry?', '', 'Delete', true))) return;
-  d().wear = d().wear.filter((x) => x.id !== e.id);
-  store.save(); refreshAll();
+async function deleteEntry(e, after) {
+  if (await confirmModal('Delete this wear entry?', '', 'Delete', true)) {
+    d().wear = d().wear.filter((x) => x.id !== e.id);
+    store.save(); refreshAll();
+  }
+  if (after) after();
 }
 
-function editEntry(e) {
+/** Edit a wear entry. `after` runs once the editor closes (e.g. to reopen the watch's page). */
+function editEntry(e, after) {
   const w = getWatch(e.watchId);
   const toLocal = (t) => { const x = new Date(t); return `${dayKey(t)}T${pad(x.getHours())}:${pad(x.getMinutes())}`; };
   const onIn = el('input', { type: 'datetime-local', class: 'input', value: toLocal(e.on) });
   const offIn = el('input', { type: 'datetime-local', class: 'input', value: e.off ? toLocal(e.off) : '' });
+  let deleting = false;
   openModal({
     title: w ? w.name : 'Wear entry',
     content: [el('label', { class: 'field' }, el('span', {}, 'Put on'), onIn), el('label', { class: 'field' }, el('span', {}, 'Taken off (leave empty if still wearing)'), offIn)],
     actions: [
-      { label: 'Delete', kind: 'danger', onClick: () => { setTimeout(() => deleteEntry(e), 0); } },
+      { label: 'Delete', kind: 'danger', onClick: () => { deleting = true; setTimeout(() => deleteEntry(e, after), 0); } },
       { label: 'Cancel' },
       { label: 'Save', kind: 'primary', onClick: () => {
         const on = new Date(onIn.value).getTime(); const off = offIn.value ? new Date(offIn.value).getTime() : null;
         if (!on || (off && off < on)) { toast('Check the times'); return false; }
-        e.on = on; e.off = off; store.save(); refreshAll();
+        e.on = on; e.off = off;
+        if (!d().wear.includes(e)) d().wear.push(e);      // a new past wear
+        store.save(); refreshAll();
       } },
     ],
+    onClose: () => { if (!deleting && after) setTimeout(after, 0); },
   });
 }
 
@@ -227,9 +233,9 @@ function reserveCard() {
   for (const w of ownedWatches()) {
     if (!isMechanical(w) || onWrist().some((e) => e.watchId === w.id)) continue;
     const s = stopsAt(w);
+    if (s == null) continue;             // untracked: its own page has the “Wound” button
     let status, cls = '';
-    if (s == null) { status = 'Not tracked yet — log a wear or tap “Wound”'; cls = 'muted'; }
-    else if (s > Date.now()) { status = `Stops in about ${fmtDuration(s - Date.now())}`; cls = s - Date.now() < 6 * HOUR ? 'warn-t' : 'ok-t'; }
+    if (s > Date.now()) { status = `Stops in about ${fmtDuration(s - Date.now())}`; cls = s - Date.now() < 6 * HOUR ? 'warn-t' : 'ok-t'; }
     else { status = `Probably stopped (${fmtDuration(Date.now() - s)} ago)`; cls = 'bad-t'; }
     const pct = s == null ? 0 : Math.max(0, Math.min(1, (s - Date.now()) / (Number(w.powerReserve) * HOUR)));
     rows.push(el('div', { class: 'pr-row' },
@@ -243,7 +249,7 @@ function reserveCard() {
   return el('div', { class: 'card' },
     el('h2', { class: 'card-title' }, 'Power reserve'),
     ...rows,
-    el('p', { class: 'muted small' }, 'Assumes the watch was fully wound when you took it off (or when you tap “Wound”). Set each watch’s power reserve in Collection → Edit.'));
+    el('p', { class: 'muted small' }, 'Assumes the watch was fully wound when you took it off (or when you tap “Wound”). Watches not shown here aren’t tracked yet: open one and tap “Wound”, or set its power reserve with Edit.'));
 }
 
 function calendarCard() {
@@ -265,9 +271,9 @@ function calendarCard() {
   }
   return el('div', { class: 'card' },
     el('div', { class: 'cal-head' },
-      el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Previous month', onclick: () => { monthOffset--; render(); } }, '‹'),
+      el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Previous month', onclick: () => { monthOffset--; store.emit('wear'); } }, '‹'),
       el('h2', { class: 'card-title' }, base.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })),
-      el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Next month', disabled: monthOffset >= 0, onclick: () => { monthOffset++; render(); } }, '›')),
+      el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Next month', disabled: monthOffset >= 0, onclick: () => { monthOffset++; store.emit('wear'); } }, '›')),
     grid);
 }
 
@@ -316,31 +322,98 @@ function statsCard() {
     el('p', { class: 'muted small' }, 'Days worn · share of all wear · last worn'));
 }
 
-export function render() {
-  const box = root();
-  if (!box) return;
-  box.innerHTML = '';
-  const rem = reminders();
-  if (rem.length) box.append(remindersCard(rem));
-  box.append(el('div', { class: 'wrist-layout' },
-    el('div', {}, onWristCard(), reserveCard()),
-    el('div', {}, calendarCard(), statsCard())));
+/* ---------- Watch Box: cards at the top ---------- */
+function boxSection() {
+  const wrap = el('div', { class: 'box-wrist' });
+  const rem = reminders().filter((r) => r.key !== 'backup');   // the backup banner already shows
+  if (rem.length) wrap.append(remindersCard(rem));
+  if (!ownedWatches().length) return wrap.children.length ? wrap : null;
+  wrap.append(onWristCard());
+  const pr = reserveCard();
+  const det = el('details', { class: 'card wear-fold', open: wearOpen, ontoggle: () => { wearOpen = det.open; } },
+    el('summary', {}, 'Wear calendar & stats'),
+    el('div', { class: 'wrist-layout' }, el('div', {}, calendarCard()), el('div', {}, statsCard(), pr)));
+  wrap.append(det);
+  return wrap;
+}
+
+/* ---------- Each watch's page: its own wrist panel ---------- */
+function wristPanel(w) {
+  if ((w.status || 'owned') !== 'owned') return null;
+  const box = el('div', { class: 'wrist-panel' });
+  const reopen = () => { const fresh = getWatch(w.id); if (fresh) openWatchDetail(fresh); };
+  const draw = () => {
+    box.innerHTML = '';
+    box.append(el('h3', { class: 'sub-title' }, 'On the wrist'));
+    const cur = onWrist().find((e) => e.watchId === w.id);
+    const mine = d().wear.filter((e) => e.watchId === w.id).sort((a, b) => b.on - a.on);
+    const { per, total } = wearStats();
+    const days = per[w.id]?.days.size || 0;
+    const last = per[w.id]?.last || 0;
+
+    let status;
+    if (cur) status = `On your wrist since ${new Date(cur.on).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · ${fmtDuration(Date.now() - cur.on)}`;
+    else if (last) status = `Last worn ${fmtDate(last)} (${Math.max(0, Math.floor((Date.now() - last) / DAY))} days ago)`;
+    else status = 'Not worn yet';
+    box.append(el('div', { class: 'wear-row' },
+      el('span', { class: 'pick-dot', style: `background:${colourOf(w.id)}` }),
+      el('div', { class: 'wear-main' }, el('div', { class: 'small' }, status),
+        el('div', { class: 'muted small' }, days ? `${days} day${days === 1 ? '' : 's'} worn · ${total ? Math.round((days / total) * 100) : 0}% of all wear` : '')),
+      cur ? el('button', { type: 'button', class: 'btn sm', onclick: () => { takeOff(cur); draw(); } }, 'Taken off')
+        : el('button', { type: 'button', class: 'btn sm primary', onclick: () => { putOn(w); draw(); } }, 'Wear now')));
+
+    if (isMechanical(w) && !cur) {
+      const s = stopsAt(w);
+      let st, cls = '';
+      if (s == null) { st = 'Power reserve not tracked yet — tap “Wound”'; cls = 'muted'; }
+      else if (s > Date.now()) { st = `Stops in about ${fmtDuration(s - Date.now())}`; cls = s - Date.now() < 6 * HOUR ? 'warn-t' : 'ok-t'; }
+      else { st = `Probably stopped (${fmtDuration(Date.now() - s)} ago)`; cls = 'bad-t'; }
+      const pct = s == null ? 0 : Math.max(0, Math.min(1, (s - Date.now()) / (Number(w.powerReserve) * HOUR)));
+      box.append(el('div', { class: 'pr-row' },
+        el('div', { class: 'pr-main' }, el('div', { class: 'small ' + cls }, st),
+          el('div', { class: 'pr-bar' }, el('span', { class: 'pr-fill ' + cls, style: `width:${pct * 100}%` }))),
+        el('button', { type: 'button', class: 'btn sm', onclick: () => { wound(w); draw(); } }, 'Wound')));
+    } else if (['automatic', 'manual'].includes(w.movement) && !w.powerReserve) {
+      box.append(el('p', { class: 'muted small' }, 'Add the power reserve (Edit → Movement) to see when it will stop.'));
+    }
+
+    if (mine.length) {
+      const list = el('div', { class: 'wear-hist' }, mine.slice(0, 5).map((e) => el('button', { type: 'button', class: 'result', onclick: () => { document.getElementById('modal').close(); setTimeout(() => editEntry(e, reopen), 0); } },
+        el('div', { class: 'r-name' }, new Date(e.on).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })),
+        el('div', { class: 'r-sub' }, `${new Date(e.on).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} – ${e.off ? new Date(e.off).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : 'still on'} · tap to edit`))));
+      box.append(list);
+      if (mine.length > 5) box.append(el('p', { class: 'muted small' }, `…and ${mine.length - 5} earlier. See them all in the Watch Box wear calendar.`));
+    }
+    box.append(el('button', { type: 'button', class: 'link-btn', onclick: () => {
+      const on = new Date(); on.setDate(on.getDate() - 1); on.setHours(9, 0, 0, 0);
+      document.getElementById('modal').close();
+      setTimeout(() => editEntry({ id: store.uid(), watchId: w.id, on: on.getTime(), off: on.getTime() + 8 * HOUR }, reopen), 0);
+    } }, '+ Log a past wear'));
+  };
+  draw();
+  return box;
+}
+
+/* ---------- Status line on each watch card ---------- */
+function cardLine(w) {
+  if (onWrist().some((e) => e.watchId === w.id)) return { text: '⌚ On your wrist', cls: 'ok-t' };
+  const s = stopsAt(w);
+  if (s == null) return null;
+  if (s > Date.now()) return { text: `Stops in ${fmtDuration(s - Date.now())}`, cls: s - Date.now() < 6 * HOUR ? 'warn-t' : 'muted' };
+  return { text: 'Probably stopped', cls: 'muted' };
 }
 
 function refreshAll() {
   updateBadge();
-  if (visible) render();
   store.emit('wear');
 }
 
-/* ---------- Detail rows in Collection ---------- */
+/* ---------- Detail rows ---------- */
 function detailRows(w) {
   const rows = [];
   if (w.lastService) rows.push(['Last service', fmtDate(new Date(w.lastService).getTime()) + (w.serviceInterval ? ` · next ${fmtDate(addYears(w.lastService, Number(w.serviceInterval)))}` : '')]);
   if (w.warrantyUntil) rows.push(['Warranty', `until ${fmtDate(new Date(w.warrantyUntil).getTime())}`]);
   if (w.movement === 'quartz' && w.batteryChanged) rows.push(['Battery changed', fmtDate(new Date(w.batteryChanged).getTime())]);
-  const s = stopsAt(w);
-  if (s) rows.push(['Power reserve', s > Date.now() ? `stops in about ${fmtDuration(s - Date.now())}` : 'probably stopped']);
   if (!rows.length) return null;
   return el('div', { class: 'fact-group' }, rows.map(([k, v]) => el('div', { class: 'fact' }, el('span', { class: 'fact-k' }, k), el('span', { class: 'fact-v' }, v))));
 }
@@ -349,13 +422,17 @@ export function register(a) {
   api = a;
   addFormFields();
   detailExtras.push(detailRows);
-  a.registerTab('wrist', { show: () => { visible = true; render(); clearInterval(timer); timer = setInterval(render, 60000); }, hide: () => { visible = false; clearInterval(timer); } });
+  detailSections.push(wristPanel);
+  cardLines.push(cardLine);
+  boxSections.push(boxSection);
   // A slim reminder line on the Clock tab.
   const clockPane = document.querySelector('#tab-clock .topbar');
   if (clockPane && !document.getElementById('clock-reminders')) {
-    clockPane.after(el('button', { type: 'button', id: 'clock-reminders', class: 'rem-line', hidden: true, onclick: () => a.switchTab('wrist') }));
+    clockPane.after(el('button', { type: 'button', id: 'clock-reminders', class: 'rem-line', hidden: true, onclick: () => {
+      d().collectionView.tab = 'owned'; store.save(); a.switchTab('collection');
+    } }));
   }
-  store.on('watches', () => { updateBadge(); if (visible) render(); });
+  store.on('watches', updateBadge);
   store.on('backup', updateBadge);
   updateBadge();
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateBadge(); });

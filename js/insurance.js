@@ -124,7 +124,7 @@ function render() {
       } }, 'Open insurance list')),
     el('div', { class: 'card' },
       el('h2', { class: 'card-title' }, '📊 Spreadsheet (CSV)'),
-      el('p', { class: 'muted small' }, 'Every watch — collection, wishlist and sold — with all details, for Numbers, Excel or Google Sheets.'),
+      el('p', { class: 'muted small' }, 'Every watch — Watch Box, wishlist and sold — with all details, for Numbers, Excel or Google Sheets.'),
       el('button', { type: 'button', class: 'btn wide', disabled: !d.watches.length, onclick: () => shareOrDownload(new Blob([buildCsv(true)], { type: 'text/csv' }), `watch-collection-${stamp()}.csv`, 'Watch collection') }, 'Export CSV')),
     el('p', { class: 'muted small center' }, 'Keep these files private: they contain serial numbers and values.'));
 }

@@ -1,4 +1,5 @@
-// Collection tab: owned watches, wishlist, sold/traded. Shared watch records with the tracker.
+// Watch Box tab: every watch you own (no limit), wishlist, sold/traded. Shared watch records with the tracker.
+// Wear tracking (on the wrist, power reserve, wear calendar) is added by wrist.js through the hooks below.
 import * as store from './store.js';
 import { el, openModal, confirmModal, toast } from './ui.js';
 import { addPhoto, deletePhoto, fillImg } from './photos.js';
@@ -37,7 +38,7 @@ export function subtitle(w) {
   return [w.brand, w.model, w.reference].filter(Boolean).join(' · ');
 }
 
-/** Number of distinct days a watch has been worn (from the Wrist tab). */
+/** Number of distinct days a watch has been worn. */
 export function daysWorn(id) {
   const days = new Set();
   for (const e of d().wear) {
@@ -322,21 +323,28 @@ export function openWatchDetail(w) {
     serialFact,
     ...(detailExtras.map((f) => f(w))),
   ));
+  for (const f of detailSections) { const n = f(w); if (n) box.append(n); }
   if (w.notes) box.append(el('h3', { class: 'sub-title' }, 'Notes'), el('p', { class: 'notes' }, w.notes));
 
   const actions = [];
   if (w.status === 'owned') actions.push({ label: 'Mark as sold', onClick: () => { setTimeout(() => openWatchEditor(w, { status: 'sold' }), 0); } });
-  else actions.push({ label: 'Move to collection', onClick: () => { w.status = 'owned'; if (!w.purchaseDate) w.purchaseDate = new Date().toISOString().slice(0, 10); changed(); toast('Moved to your collection'); } });
+  else actions.push({ label: 'Move to Watch Box', onClick: () => { w.status = 'owned'; if (!w.purchaseDate) w.purchaseDate = new Date().toISOString().slice(0, 10); changed(); toast('Moved to your Watch Box'); } });
   actions.push(
     { label: 'Delete', kind: 'danger', onClick: () => { setTimeout(async () => { if (await confirmModal(`Delete “${w.name}”?`, 'This removes the watch, its photos and all its marks.', 'Delete', true)) { await removeWatch(w); toast('Deleted'); } }, 0); } },
     { label: 'Edit', onClick: () => { setTimeout(() => openWatchEditor(w), 0); } },
     { label: 'Close', kind: 'primary' });
   openModal({ title: w.name, className: 'tall', content: box, actions });
 }
-// Other stages can add rows to the detail view.
+// Other stages can add rows to the detail view…
 export const detailExtras = [];
+// …whole sections under the facts (e.g. the watch's own wrist/wear panel)…
+export const detailSections = [];
+// …a short status line on each watch card (e.g. "On your wrist")…
+export const cardLines = [];
+// …and cards near the top of the Watch Box (e.g. reminders, what's on the wrist).
+export const boxSections = [];
 
-/* ---------- Collection screen ---------- */
+/* ---------- Watch Box screen ---------- */
 const root = () => document.getElementById('collection');
 
 function summary(list) {
@@ -403,7 +411,8 @@ function watchCard(w) {
     el('div', { class: 'wc-body' },
       el('div', { class: 'wc-name' }, w.name),
       el('div', { class: 'wc-sub' }, subtitle(w) || movementLabel(w.movement) || ' '),
-      line ? el('div', { class: 'wc-line' }, line) : null));
+      line ? el('div', { class: 'wc-line' }, line) : null,
+      w.status === 'owned' ? cardLines.map((f) => { const t = f(w); return t ? el('div', { class: 'wc-status ' + (t.cls || '') }, t.text) : null; }) : null));
 }
 
 export function render() {
@@ -417,11 +426,12 @@ export function render() {
 
   for (const f of bannerHooks) { const b = f(); if (b) box.append(b); }
 
-  const tabs = el('div', { class: 'seg seg3' }, [['owned', 'Collection'], ['wishlist', 'Wishlist'], ['sold', 'Sold']].map(([v, lab]) =>
+  const tabs = el('div', { class: 'seg seg3' }, [['owned', 'Owned'], ['wishlist', 'Wishlist'], ['sold', 'Sold']].map(([v, lab]) =>
     el('button', { type: 'button', class: 'seg-btn' + (view.tab === v ? ' active' : ''), onclick: () => { view.tab = v; store.save(); render(); } }, `${lab} (${counts[v]})`)));
   box.append(tabs);
 
   let list = data.watches.filter((w) => (w.status || 'owned') === view.tab);
+  if (view.tab === 'owned') for (const f of boxSections) { const n = f(); if (n) box.append(n); }
   if (view.tab === 'owned' && list.length) box.append(summary(list));
 
   const search = el('input', { type: 'search', class: 'input', placeholder: 'Search', value: view.q || '', 'aria-label': 'Search watches',
@@ -443,17 +453,20 @@ export function render() {
     shown = sortList(shown, view.sort);
     if (!shown.length) {
       grid.append(el('p', { class: 'muted empty-note' }, q ? 'No watches match your search.' :
-        view.tab === 'owned' ? 'Your collection is empty. Tap “Add a watch” to start.' :
+        view.tab === 'owned' ? 'Your Watch Box is empty. Tap “Add a watch” to start — there’s room for as many as you like.' :
           view.tab === 'wishlist' ? 'Nothing on your wishlist yet.' : 'No sold or traded watches yet.'));
     }
     for (const w of shown) grid.append(watchCard(w));
   }
   drawGrid();
 }
-// Other stages can add banners (reminders) at the top of the Collection screen.
+// Other stages can add banners at the top of the Watch Box screen.
 export const bannerHooks = [];
 
 let visible = false;
-export function initCollection() { store.on('watches', () => { if (visible) render(); }); }
+export function initCollection() {
+  store.on('watches', () => { if (visible) render(); });
+  store.on('wear', () => { if (visible) render(); });
+}
 export function showCollection() { visible = true; render(); }
 export function hideCollection() { visible = false; }
