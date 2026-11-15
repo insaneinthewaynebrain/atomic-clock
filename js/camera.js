@@ -14,20 +14,21 @@ const OUT = { circle: [800, 800], square: [800, 800], rect: [600, 800] };   // s
 const HINT_H = 34;   // room kept under the guide for the hint line
 
 /** The guide's size and place: as big as fits between the top controls (y0) and the bottom controls (y1). */
-function frameRect(shape, x0, x1, y0, y1) {
+function frameRect(shape, x0, x1, y0, y1, fill = 0.92) {
   const W = x1 - x0;
   const availH = Math.max(100, y1 - y0 - HINT_H);
   let fw, fh;
   if (shape === 'rect') {
-    fh = Math.min(availH, (W * 0.62) / 0.75);
+    fh = Math.min(availH, (W * fill * 0.8) / 0.75);
     fw = fh * 0.75;
   } else {
-    fw = fh = Math.min(W * 0.78, availH);
+    fw = fh = Math.min(W * fill, availH);
   }
   return { x: x0 + (W - fw) / 2, y: y0 + (availH - fh) / 2, w: fw, h: fh };
 }
-// Short landscape screens (a phone on its side): controls move to the left and right edges.
-const SIDE = '(orientation: landscape) and (max-height: 520px)';
+// Landscape (a phone on its side, or a wide/unfolded screen): shapes down one edge, zoom + shutter down the
+// other, beside the guide — easy to reach with the thumb of the hand holding the phone while the watch is on
+// the other wrist. "Left hand" mirrors it. Portrait keeps the shutter at the bottom with zoom up the side.
 
 /**
  * Opens the camera. Resolves with { blob, shape } (a JPEG of just the framed area), { skip: true } if the
@@ -59,8 +60,34 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       b.dataset.v = v;
       return b;
     });
-    const zoom = el('input', { type: 'range', class: 'cam-zoom', min: '1', max: '4', step: '0.01', value: '1', 'aria-label': 'Zoom',
-      oninput: () => { z = Number(zoom.value); clampPan(); apply(); } });
+    // Vertical zoom slider (drag up to zoom in) — sits under the thumb in every layout.
+    const zFill = el('div', { class: 'zv-fill' });
+    const zHandle = el('div', { class: 'zv-handle' });
+    const zTrack = el('div', { class: 'zv-track' }, zFill, zHandle);
+    const zLabel = el('div', { class: 'zv-val' }, '1.0×');
+    const zoomV = el('div', { class: 'cam-zoomv', role: 'slider', 'aria-label': 'Zoom', 'aria-valuemin': '1', 'aria-valuemax': '4', tabindex: '0' },
+      el('span', { class: 'zv-end' }, '4×'), zTrack, el('span', { class: 'zv-end' }, '1×'), zLabel);
+    const setZoomUI = () => {
+      const pc = ((z - 1) / 3) * 100;
+      zFill.style.height = pc + '%'; zHandle.style.bottom = pc + '%';
+      zLabel.textContent = z.toFixed(1) + '×'; zoomV.setAttribute('aria-valuenow', z.toFixed(1));
+    };
+    const zoomTo = (v) => { z = Math.max(1, Math.min(4, v)); setZoomUI(); clampPan(); apply(); };
+    const zoomFromY = (y) => { const b = zTrack.getBoundingClientRect(); zoomTo(1 + 3 * (1 - Math.max(0, Math.min(1, (y - b.top) / b.height)))); };
+    zoomV.addEventListener('pointerdown', (e) => { e.stopPropagation(); zoomV.setPointerCapture(e.pointerId); zoomFromY(e.clientY); });
+    zoomV.addEventListener('pointermove', (e) => { if (zoomV.hasPointerCapture(e.pointerId)) zoomFromY(e.clientY); });
+    zoomV.addEventListener('keydown', (e) => { if (e.key === 'ArrowUp') zoomTo(z + 0.1); if (e.key === 'ArrowDown') zoomTo(z - 0.1); });
+
+    const data0 = store.get();
+    const handBtn = el('button', { type: 'button', class: 'cam-hand', onclick: () => {
+      data0.camHand = data0.camHand === 'left' ? 'right' : 'left'; store.save(); setHand(); layout();
+    } });
+    function setHand() {
+      const left = data0.camHand === 'left';
+      dlg.classList.toggle('lefty', left);
+      handBtn.textContent = left ? '✋ Left-hand layout' : '🤚 Right-hand layout';
+      handBtn.setAttribute('aria-label', `Controls on the ${left ? 'left' : 'right'} — tap to swap sides`);
+    }
 
     const fileIn = el('input', { type: 'file', accept: 'image/*', hidden: true });
     const shotIn = el('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true });
@@ -78,13 +105,12 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     shotIn.addEventListener('change', onFile(shotIn));
 
     const shutter = el('button', { type: 'button', class: 'cam-shutter', 'aria-label': 'Take picture', onclick: () => take() });
-    const topEl = el('div', { class: 'cam-top' }, el('div', { class: 'cam-title' }, title), el('div', { class: 'cam-shapes' }, shapeBtns));
-    const zoomRow = el('div', { class: 'cam-zoomrow' }, el('span', {}, '1×'), zoom, el('span', {}, '4×'));
+    const topEl = el('div', { class: 'cam-top' }, el('div', { class: 'cam-title' }, title), el('div', { class: 'cam-shapes' }, shapeBtns), handBtn);
     let controls;
     const bar = el('div', { class: 'cam-bar' },
       topEl,
       controls = el('div', { class: 'cam-controls' },
-        zoomRow,
+        zoomV,
         el('div', { class: 'cam-bottom' },
           el('button', { type: 'button', class: 'btn sm', onclick: () => finish(null) }, 'Cancel'),
           shutter,
@@ -94,6 +120,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     document.body.append(dlg);
     dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
     dlg.showModal();
+    setHand(); setZoomUI();
     stage.tabIndex = -1;
     stage.focus({ preventScroll: true });   // no button starts highlighted
 
@@ -111,17 +138,20 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     /** Guide position for the current shape, fitted between the top and bottom controls. */
     function fit() {
       const sr = stage.getBoundingClientRect();
-      if (matchMedia(SIDE).matches) {
-        const x0 = topEl.getBoundingClientRect().right - sr.left + 12;
-        const x1 = controls.getBoundingClientRect().left - sr.left - 12;
-        return frameRect(cur, x0, x1, 12, sr.height - 4);
+      if (dlg.classList.contains('side')) {
+        const a = topEl.getBoundingClientRect(), b = controls.getBoundingClientRect();
+        const [l, rr] = a.left < b.left ? [a, b] : [b, a];
+        return frameRect(cur, l.right - sr.left + 12, rr.left - sr.left - 12, 14, sr.height - 4);
       }
       const y0 = topEl.getBoundingClientRect().bottom - sr.top + 14;
-      const y1 = zoomRow.getBoundingClientRect().top - sr.top - 8;
-      return frameRect(cur, 0, sr.width, y0, y1);
+      const y1 = controls.getBoundingClientRect().top - sr.top - 8;
+      return frameRect(cur, 60, sr.width - 60, y0, y1, 1);   // full width between the zoom slider and the other edge
     }
     function layout() {
+      dlg.classList.toggle('side', stage.clientWidth > stage.clientHeight * 1.1);
       const f = fit();
+      if (dlg.classList.contains('side')) Object.assign(zoomV.style, { top: '', height: '' });
+      else Object.assign(zoomV.style, { top: f.y + 'px', height: f.h + 'px' });
       Object.assign(frame.style, { left: f.x + 'px', top: f.y + 'px', width: f.w + 'px', height: f.h + 'px' });
       frame.className = 'cam-frame ' + cur;
       hint.style.top = (f.y + f.h + 8) + 'px';
@@ -146,7 +176,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       const dist = p.length > 1 ? Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]) : 0;
       if (last && last.n === p.length) {
         tx += cx - last.cx; ty += cy - last.cy;
-        if (p.length > 1 && last.dist) { z = Math.max(1, Math.min(4, z * (dist / last.dist))); zoom.value = String(z); }
+        if (p.length > 1 && last.dist) { z = Math.max(1, Math.min(4, z * (dist / last.dist))); setZoomUI(); }
         clampPan(); apply();
       }
       last = { cx, cy, dist, n: p.length };
@@ -162,7 +192,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       still = img;
       stage.prepend(img);
       msg.hidden = true;
-      z = 1; tx = 0; ty = 0; zoom.value = '1';
+      z = 1; tx = 0; ty = 0; setZoomUI();
       hint.textContent = 'Drag and pinch to fit the watch head in the shape';
       layout();
     }

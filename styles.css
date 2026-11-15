@@ -1186,9 +1186,6 @@ dialog.cam::backdrop { background: #000; }
 .cam-shape.active { background: #fff; color: #000; }
 .cam-ico { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; }
 .cam-ico.circle { border-radius: 50%; } .cam-ico.square { border-radius: 3px; } .cam-ico.rect { width: 11px; height: 15px; border-radius: 3px; }
-.cam-controls { margin-top: auto; width: 100%; max-width: 640px; align-self: center; }
-.cam-zoomrow { display: flex; align-items: center; gap: 10px; font-size: 12px; margin-bottom: 12px; text-shadow: 0 1px 2px #000; }
-.cam-zoom { flex: 1; accent-color: #fff; }
 .cam-bottom { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
 .cam-bottom .btn:first-child { justify-self: start; } .cam-bottom .btn:last-child { justify-self: end; }
 .cam-shutter { width: 74px; height: 74px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 0 0 4px #000, 0 0 0 7px #fff; }
@@ -1252,17 +1249,32 @@ a.c24-btn { display: flex; align-items: center; justify-content: center; text-de
 .qr-img { width: min(260px, 70vw); image-rendering: pixelated; border-radius: 8px; }
 .qr-text { white-space: pre-wrap; font-size: 12px; color: var(--muted); margin: 0; align-self: stretch; background: var(--bg); padding: 10px; border-radius: 10px; }
 
-/* Camera on a phone turned sideways: shapes down the left, shutter down the right */
-@media (orientation: landscape) and (max-height: 520px) {
-  .cam-bar { flex-direction: row; align-items: center; }
-  .cam-top { width: 120px; align-items: stretch; }
-  .cam-title { font-size: 14px; justify-content: center; text-align: center; }
-  .cam-shapes { flex-direction: column; border-radius: 18px; }
-  .cam-shape { justify-content: flex-start; }
-  .cam-controls { margin: 0 0 0 auto; width: 120px; display: flex; flex-direction: column; align-items: center; }
-  .cam-zoomrow { display: none; }
-  .cam-bottom { grid-template-columns: auto; grid-template-rows: auto auto auto; gap: 14px; justify-items: center; }
-  .cam-bottom .btn:first-child { order: 3; justify-self: center; } .cam-bottom .cam-shutter { order: 2; } .cam-bottom .btn:last-child { order: 1; justify-self: center; }
-  .cam-shutter { width: 64px; height: 64px; }
-  .cam-skip { font-size: 12px; text-align: center; }
 }
+
+/* Camera controls: portrait = shutter row at the bottom, zoom up the side; .side = landscape columns; .lefty = mirrored */
+.cam-controls { margin-top: auto; width: 100%; max-width: 640px; align-self: center; }
+.cam-hand { border: 0; background: rgba(0,0,0,.55); color: #fff; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 99px; }
+.cam-zoomv { position: absolute; right: calc(var(--safe-right) + 12px); width: 44px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  touch-action: none; user-select: none; -webkit-user-select: none; font-size: 11px; color: #fff; text-shadow: 0 1px 2px #000; }
+dialog.cam.lefty:not(.side) .cam-zoomv { right: auto; left: calc(var(--safe-left) + 12px); }
+.zv-track { position: relative; flex: 1; width: 8px; min-height: 60px; border-radius: 99px; background: rgba(255,255,255,.25); box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
+.zv-fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 99px; background: #fff; }
+.zv-handle { position: absolute; left: 50%; width: 30px; height: 30px; margin: 0 0 -15px -15px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.6); }
+.zv-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.zv-end { opacity: .8; }
+
+dialog.cam.side .cam-bar { flex-direction: row; align-items: stretch; justify-content: space-between; }
+dialog.cam.side.lefty .cam-bar { flex-direction: row-reverse; }
+dialog.cam.side .cam-top { width: 132px; align-self: center; align-items: stretch; }
+dialog.cam.side .cam-title { font-size: 14px; justify-content: center; text-align: center; }
+dialog.cam.side .cam-shapes { flex-direction: column; border-radius: 18px; }
+dialog.cam.side .cam-shape { justify-content: flex-start; }
+dialog.cam.side .cam-controls { margin: 0; width: 132px; max-width: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+dialog.cam.side .cam-zoomv { position: static; flex: 1 1 auto; max-height: 230px; min-height: 120px; }
+dialog.cam.side .cam-bottom { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+dialog.cam.side .cam-bottom .btn { order: 3; } dialog.cam.side .cam-bottom .cam-shutter { order: 2; } dialog.cam.side .cam-bottom .btn:last-child { order: 1; }
+dialog.cam.side .cam-skip { margin: 0; font-size: 12px; text-align: center; }
+@media (max-height: 520px) { dialog.cam.side .cam-shutter { width: 62px; height: 62px; } dialog.cam.side .cam-zoomv { min-height: 70px; } dialog.cam.side .cam-controls { gap: 8px; } }
+.cam-zoomv { gap: 20px; }
+.zv-val { margin-top: -8px; }
+dialog.cam:not(.side) .cam-hint { left: 64px; right: 64px; }
