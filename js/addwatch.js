@@ -1,31 +1,13 @@
 // Add-a-watch journey:
-//   1. camera + film-style dial scan (camera.js, dialscan.js)
-//   2. "Which watch is it?" — brand (dropdown or add a brand), reference (or "I don't know"), a name, year (or "I don't know")
-//   3. look-up: built-in reference list + Wikipedia, cross-checked with what the scan read; Chrono24 for prices
-//   4. the full form, pre-filled, for the person to check and save.
-import * as store from './store.js';
+//   1. camera + film-style dial scan (camera.js, dialscan.js) — the only automatic part
+//   2. "Which watch is it?" — brand (dropdown or add a brand), model by reference or by name, year (or not sure)
+//   3. the full form, pre-filled with what the dial read and the answers above, for the person to complete and save.
 import { el, openModal, toast } from './ui.js';
 import { addPhoto, deletePhoto } from './photos.js';
 import { captureFace } from './camera.js';
-import { lookupReference, wikiSummary, chrono24Url, FEATURE_LABELS } from './watchdb.js';
-import { openWatchEditor, allBrands, movementLabel } from './collection.js';
+import { openWatchEditor, allBrands } from './collection.js';
 
 const scanner = () => import('./dialscan.js');
-
-const LABELS = {
-  brand: 'Brand', model: 'Model', reference: 'Reference', calibre: 'Movement (calibre)', movement: 'Movement type', jewels: 'Jewels',
-  bph: 'Beat rate', powerReserve: 'Power reserve', caseSize: 'Case size', lugWidth: 'Lug width', waterResistance: 'Water resistance',
-  chronometer: 'Chronometer', madeYears: 'Made', ...FEATURE_LABELS,
-};
-function show(k, v) {
-  if (v === true) return 'Yes';
-  if (v === false) return 'No';
-  if (k === 'movement') return movementLabel(v) || v;
-  if (k === 'bph') return `${Number(v).toLocaleString('en-GB')} bph`;
-  if (k === 'powerReserve') return `${v} h`;
-  if (k === 'caseSize' || k === 'lugWidth') return `${v} mm`;
-  return String(v);
-}
 
 export async function addWatch(status = 'owned') {
   scanner().then((m) => m.warmUp()).catch(() => {});      // start fetching the dial reader while the camera opens
@@ -83,7 +65,7 @@ function identify(ctx) {
     modeBtns.forEach((b) => b.classList.toggle('active', b.dataset.v === mode));
     refIn.hidden = mode !== 'ref'; nameIn.hidden = mode !== 'name';
     modelHint.textContent = mode === 'ref'
-      ? 'Best for finding the details. It’s on the case back, the papers or warranty card, or between the lugs.'
+      ? 'It’s on the case back, the papers or warranty card, or engraved between the lugs.'
       : 'No reference, or don’t know it? Give the watch a name instead.';
   }
   syncMode();
@@ -118,13 +100,12 @@ function identify(ctx) {
   openModal({
     title: 'Which watch is it?', className: 'tall', content,
     actions: [
-      { label: 'Skip', onClick: () => { done = true; Object.assign(a, read()); setTimeout(() => toEditor(ctx, null), 0); } },
-      { label: 'Find details', kind: 'primary', onClick: () => {
+      { label: 'Cancel' },
+      { label: 'Continue', kind: 'primary', onClick: () => {
         const v = read();
-        if (!v.brand && !v.reference && !v.name) { toast('Choose a brand, or enter a reference or name'); return false; }
         if (brandSel.value === '__add' && !v.brand) { toast('Type the new brand name'); brandNew.focus(); return false; }
         done = true; Object.assign(a, v);
-        setTimeout(() => findDetails(ctx), 0);
+        setTimeout(() => toEditor(ctx), 0);
       } },
     ],
     onClose: () => { if (!done) cancelAdd(ctx); },
@@ -136,102 +117,24 @@ function cancelAdd(ctx) {
   toast('Watch not added');
 }
 
-/* ---------- Step 3: look it up and cross-check ---------- */
-async function findDetails(ctx) {
+/* ---------- Step 3: the full form ---------- */
+function toEditor(ctx) {
   const a = ctx.answers;
   const sf = ctx.scan?.fields || {};
-  let closedEarly = false;   // any close of this modal is the person cancelling (moving on replaces it without closing)
-  openModal({ title: 'Finding details…', content: el('div', { class: 'finding' }, el('div', { class: 'spinner' }),
-    el('p', { class: 'muted' }, 'Checking the reference list and Wikipedia…')),
-  actions: [{ label: 'Cancel' }], onClose: () => { closedEarly = true; cancelAdd(ctx); } });
-
-  const year = /^\d{4}$/.test(a.year) ? Number(a.year) : null;
-  const look = lookupReference({ reference: a.refUnknown ? '' : a.reference, year, calibre: sf.calibre });
-  const query = [look.fields.brand || a.brand, look.fields.model || a.name || a.reference].filter(Boolean).join(' ');
-  const wiki = query ? await Promise.race([wikiSummary(query), new Promise((r) => setTimeout(() => r(null), 6000))]) : null;
-  if (closedEarly) return;
-
-  // Cross-check: the reference list wins over the dial; say what it confirmed or corrected.
-  const merged = { ...sf };
-  const rows = [];
-  const keys = [...new Set([...Object.keys(sf), ...Object.keys(look.fields)])].filter((k) => LABELS[k]);
-  for (const k of keys) {
-    const s = sf[k], l = look.fields[k];
-    if (l === false && s === undefined) continue;                 // don't list every function the watch hasn't got
-    if (l !== undefined) merged[k] = l;
-    let src;
-    if (s !== undefined && l !== undefined) src = String(s) === String(l) ? ['ok', 'Dial ✓ list'] : ['fix', `Corrected (dial read ${show(k, s)})`];
-    else if (l !== undefined) src = ['list', 'Reference list'];
-    else src = ['dial', 'Dial'];
-    rows.push([k, merged[k], src]);
-  }
-  // The person's own choice of brand always beats what the dial seemed to say (the dial reading is only a guess);
-  // the reference list only overrides it when it knows this exact reference.
-  const brandRow = rows.findIndex(([k]) => k === 'brand');
-  if (brandRow >= 0) rows.splice(brandRow, 1);
-  const brand = look.fields.brand || a.brand || sf.brand || null;
-  if (brand) {
-    const src = look.fields.brand
-      ? (a.brand && a.brand !== look.fields.brand ? ['fix', `Corrected by the reference (you chose ${a.brand})`] : ['list', 'Reference list'])
-      : a.brand ? (sf.brand && sf.brand !== a.brand ? ['ok', `Your choice (dial guessed ${sf.brand})`] : ['ok', sf.brand ? 'Your choice ✓ dial' : 'Your choice']) : ['dial', 'Dial'];
-    rows.unshift(['brand', brand, src]);
-  }
-  merged.brand = brand;
-  if (!a.refUnknown && a.reference) merged.reference = a.reference;
-  if (year) merged.year = year;
-  const ownName = a.name && a.name !== sf.model ? a.name : null;      // typed by the person, not just the family read off the dial
-  merged.model = look.fields.model || a.name || sf.model || null;
-  if (ownName) merged.name = ownName.toLowerCase().startsWith(String(merged.brand || '').toLowerCase()) ? ownName : [merged.brand, ownName].filter(Boolean).join(' ');
-  delete merged.madeYears;
-
-  const body = [];
-  if (a.year === 'unknown' || !a.year) body.push(el('div', { class: 'notice warn' }, el('b', {}, 'Year not known. '), 'The details below are for this reference in general — please check they’re correct for your watch.'));
-  if (a.refUnknown || !a.reference) body.push(el('div', { class: 'notice' }, el('b', {}, 'No reference. '), 'You can enter the details yourself on the next screen. Anything read from the dial is already filled in.'));
-  else if (!look.key) body.push(el('div', { class: 'notice' }, el('b', {}, `${a.reference} isn’t in the app’s reference list yet. `), 'Check Wikipedia or Chrono24 below and fill in the rest on the next screen.'));
-  for (const n of look.notes) body.push(el('div', { class: 'notice warn' }, n));
-  if (rows.length) {
-    body.push(el('div', { class: 'facts found-list' }, rows.map(([k, v, [cls, src]]) => el('div', { class: 'fact' },
-      el('span', { class: 'fact-k' }, LABELS[k]),
-      el('span', { class: 'fact-v' }, show(k, v), el('small', { class: 'src src-' + cls }, src))))));
-  } else body.push(el('p', { class: 'muted' }, 'Nothing could be filled in automatically.'));
-  if (look.fields.madeYears) body.push(el('p', { class: 'muted small' }, `This reference was made ${look.fields.madeYears}.`));
-  if (wiki) {
-    body.push(el('div', { class: 'wiki' }, el('div', { class: 'wiki-t' }, 'Wikipedia: ', wiki.title),
-      el('p', {}, wiki.text.length > 420 ? wiki.text.slice(0, 400).replace(/\s\S*$/, '') + '…' : wiki.text),
-      wiki.url ? el('a', { href: wiki.url, target: '_blank', rel: 'noopener' }, 'Read more ↗') : null));
-  }
-  const c24q = [merged.brand, merged.reference || merged.model].filter(Boolean).join(' ');
-  if (c24q) {
-    body.push(el('a', { class: 'btn wide c24-btn', href: chrono24Url(c24q, store.get().money || 'GBP'), target: '_blank', rel: 'noopener' }, 'See current prices on Chrono24 ↗'),
-      el('p', { class: 'muted small' }, 'Chrono24 doesn’t let other apps read its prices, so this opens its search for your watch in your country. Pop the typical price into “Estimated value”.'));
-  }
-  body.push(el('p', { class: 'muted small' }, 'Details come from the app’s built-in reference list and what was read from the dial — always worth a quick check.'));
-
-  let moved = false;
-  openModal({
-    title: 'What we found', className: 'tall', content: body,
-    actions: [
-      { label: '‹ Back', onClick: () => { moved = true; setTimeout(() => identify(ctx), 0); } },
-      { label: 'Continue', kind: 'primary', onClick: () => { moved = true; setTimeout(() => toEditor(ctx, merged, rows.length), 0); } },
-    ],
-    onClose: () => { if (!moved) cancelAdd(ctx); },
-  });
-}
-
-/* ---------- Step 4: the full form ---------- */
-function toEditor(ctx, merged, nFound = 0) {
-  const a = ctx.answers;
-  const prefill = merged ? { ...merged } : {
-    ...(ctx.scan?.fields || {}),
-    brand: a.brand || ctx.scan?.fields?.brand || null,
+  const own = a.name && a.name !== sf.model ? a.name : null;           // a name the person typed, not just a family read off the dial
+  const prefill = {
+    ...sf,                                                               // what the dial read: movement, jewels, depth, functions…
+    brand: a.brand || sf.brand || null,
     reference: a.refUnknown ? null : a.reference || null,
-    model: a.name || ctx.scan?.fields?.model || null,
+    model: a.name || sf.model || null,
     year: /^\d{4}$/.test(a.year || '') ? Number(a.year) : null,
   };
+  if (own && prefill.brand && !own.toLowerCase().startsWith(prefill.brand.toLowerCase())) prefill.name = `${prefill.brand} ${own}`;
+  else if (own) prefill.name = own;
   for (const k of Object.keys(prefill)) if (prefill[k] == null || prefill[k] === '') delete prefill[k];
-  const banner = merged
-    ? el('div', { class: 'notice' + (a.year === 'unknown' || !a.year ? ' warn' : '') }, nFound ? `${nFound} detail${nFound === 1 ? '' : 's'} filled in for you. ` : '',
-      a.year === 'unknown' || !a.year ? 'Year not known — please check the details are correct.' : 'Please check everything is right, then add anything else you know.')
+  const fromDial = Object.keys(sf).filter((k) => sf[k] != null && sf[k] !== false).length;
+  const banner = fromDial
+    ? el('div', { class: 'notice' }, `${fromDial} detail${fromDial === 1 ? '' : 's'} filled in from the dial. Please check them, then add anything else you know.`)
     : null;
   openWatchEditor(null, { status: ctx.status, face: ctx.face, prefill, banner });
 }
