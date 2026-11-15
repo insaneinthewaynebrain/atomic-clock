@@ -18,7 +18,7 @@ import * as insurance from './insurance.js';
 import * as timegrapher from './timegrapher.js';
 import * as alarm from './alarm.js';
 
-export const APP_VERSION = '47';
+export const APP_VERSION = '48';
 
 // Feature modules that register their own tabs/tools.
 const EXTRA_MODULES = [wrist, setting, insurance, timegrapher, alarm];

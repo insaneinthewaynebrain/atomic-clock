@@ -380,12 +380,32 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       if (cur === 'cutout') main = { blob: await cutoutBlob(), shape: 'cutout' };
       else {
         const [ow, oh] = OUT[cur];
-        const mine = { blob: await toBlob(grab(fit(), ow, oh, !cutout), type), shape: cur, how: 'guide' };
-        if (cur === 'circle' && snap && Date.now() - snap.t < 1200) {
-          const sq = { x: snap.x - snap.r, y: snap.y - snap.r, w: snap.r * 2, h: snap.r * 2 };
-          main = { blob: await toBlob(grab(sq, ow, oh, !cutout), type), shape: cur, how: 'snap' };
-          alt = mine;
-        } else main = mine;
+        const f = fit();
+        if (cur === 'circle') {
+          // One snapshot of the area round the guide: find the dial in *this* frame and crop from the same frame,
+          // so the crop can't lag behind the live ring or come from a different moment.
+          const side = f.w * 1.5, S = 960, k = side / S;
+          const area = { x: f.x + f.w / 2 - side / 2, y: f.y + f.h / 2 - side / 2, w: side, h: side };
+          const shot = grab(area, S, S, !cutout);
+          const sm = document.createElement('canvas'); sm.width = sm.height = LOOK;
+          const sg = sm.getContext('2d', { willReadFrequently: true }); sg.drawImage(shot, 0, 0, LOOK, LOOK);
+          let found = null;
+          try { found = findDial(sg.getImageData(0, 0, LOOK, LOOK)); } catch (e) { found = null; }
+          const cropFrom = (x, y, w) => { const c = document.createElement('canvas'); c.width = ow; c.height = oh; const g = c.getContext('2d'); if (!cutout) { g.fillStyle = '#000'; g.fillRect(0, 0, ow, oh); } g.drawImage(shot, x, y, w, w * (oh / ow), 0, 0, ow, oh); return c; };
+          const guideCanvas = cropFrom((f.x - area.x) / k, (f.y - area.y) / k, f.w / k);
+          const mine = { blob: await toBlob(guideCanvas, type), shape: cur, how: 'guide' };
+          const r = found ? (found.r * (S / LOOK)) * 1.05 : 0;              // in snapshot pixels, a little outside the bezel
+          const sane = found && r * k >= (f.w / 2) * 0.8 && r * k <= (f.w / 2) * 1.45;
+          if (sane) {
+            const cx = found.cx * (S / LOOK), cy = found.cy * (S / LOOK);
+            main = { blob: await toBlob(cropFrom(cx - r, cy - r, 2 * r), type), shape: cur, how: 'snap' };
+            alt = mine;
+          } else if (auto) {
+            // Taken automatically but the dial can't be confirmed in this very frame: don't save a bad crop, keep waiting.
+            busy = false; shutter.disabled = false; dlg.classList.remove('flash'); steadyRun = 0;
+            return;
+          } else main = mine;
+        } else main = { blob: await toBlob(grab(f, ow, oh, !cutout), type), shape: cur, how: 'guide' };
       }
       if (!main.blob) { shutter.disabled = false; busy = false; toast('Could not take the picture'); return; }
       main.auto = auto;

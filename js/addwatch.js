@@ -146,9 +146,18 @@ async function findDetails(ctx) {
     else src = ['dial', 'Dial'];
     rows.push([k, merged[k], src]);
   }
-  // The person's own choices.
-  if (a.brand && look.fields.brand && a.brand !== look.fields.brand) rows.unshift(['brand', look.fields.brand, ['fix', `Corrected (you chose ${a.brand})`]]);
-  merged.brand = look.fields.brand || a.brand || sf.brand || null;
+  // The person's own choice of brand always beats what the dial seemed to say (the dial reading is only a guess);
+  // the reference list only overrides it when it knows this exact reference.
+  const brandRow = rows.findIndex(([k]) => k === 'brand');
+  if (brandRow >= 0) rows.splice(brandRow, 1);
+  const brand = look.fields.brand || a.brand || sf.brand || null;
+  if (brand) {
+    const src = look.fields.brand
+      ? (a.brand && a.brand !== look.fields.brand ? ['fix', `Corrected by the reference (you chose ${a.brand})`] : ['list', 'Reference list'])
+      : a.brand ? (sf.brand && sf.brand !== a.brand ? ['ok', `Your choice (dial guessed ${sf.brand})`] : ['ok', sf.brand ? 'Your choice ✓ dial' : 'Your choice']) : ['dial', 'Dial'];
+    rows.unshift(['brand', brand, src]);
+  }
+  merged.brand = brand;
   if (!a.refUnknown && a.reference) merged.reference = a.reference;
   if (year) merged.year = year;
   const ownName = a.name && a.name !== sf.model ? a.name : null;      // typed by the person, not just the family read off the dial

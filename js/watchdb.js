@@ -267,7 +267,10 @@ export function guessBrands(words) {
       else if (w.length >= 4 && t.includes(w)) sc = 0.42 + 0.35 * ratio;
       if (!sc) continue;
       if (w !== t) {
-        if (w.length === 3) sc -= 0.08;                                 // a lone 3-letter scrap is weak evidence
+        // A 3-letter scrap is weak evidence: it may only point to a well-known brand ("IKO" → Seiko), never to a
+        // rarer one it happens to end (e.g. "ITT" → Paul Hewitt).
+        if (w.length === 3 && !COMMON.has(brand)) continue;
+        if (w.length === 3) sc -= 0.08;
         if (!/[A-Z]/.test(String(raw).replace(/[^A-Za-z]/g, '').slice(0, 3))) sc -= 0.1;   // dial logos are capitals; "ome" is likely junk
       }
       if (partial) sc -= 0.1;                  // a sub-name (e.g. PROSPEX, or SEIKO inside Grand Seiko) is a weaker sign
