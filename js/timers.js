@@ -112,10 +112,45 @@ function viewTimer(box, rerender) {
 }
 
 /* ---------- Stopwatch with laps ---------- */
-// One stopwatch: Start/Stop on the right, Lap (while running) or Reset (while stopped) on the left.
+// One stopwatch: left circle is Lap (running) or Reset (stopped); right circle is Start / Stop / Continue.
 // s.laps holds the total time at each lap press, so lap times are the gaps between them.
-const elapsed = (s) => s.base + (s.since ? Date.now() - s.since : 0);
-function toggle(s) { if (s.since) { s.base += Date.now() - s.since; s.since = null; } else s.since = Date.now(); save(); }
+//
+// Accuracy: taps are taken on touch-down (not on release, which adds ~50–150 ms) and timed from the
+// event's own high-resolution timestamp, so a busy screen redraw can't delay the reading. While the
+// app stays open, time is measured with the monotonic performance clock (not the wall clock, which
+// can jump when the phone re-syncs). s.since (wall clock) is still saved so it keeps going across reloads.
+let anchor = null;                       // { since, perf }: performance.now() at the moment s.since began
+const ms3 = (ms) => {                    // 00:00.000 — milliseconds
+  ms = Math.max(0, Math.floor(ms));
+  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return (h ? `${h}:${pad(m)}` : pad(m)) + `:${pad(s % 60)}.${String(ms % 1000).padStart(3, '0')}`;
+};
+const eventPerf = (ev) => {              // when the finger actually touched, on the performance clock
+  const now = performance.now(), t = ev && ev.timeStamp;
+  return t > now - 1000 && t <= now ? t : now;
+};
+const elapsedAt = (s, perf) => s.base + (!s.since ? 0
+  : anchor && anchor.since === s.since ? perf - anchor.perf
+  : Date.now() - (performance.now() - perf) - s.since);
+const elapsed = (s) => elapsedAt(s, performance.now());
+function toggleAt(s, perf) {
+  if (s.since) { s.base = elapsedAt(s, perf); s.since = null; anchor = null; }
+  else { s.since = Date.now() - (performance.now() - perf); anchor = { since: s.since, perf }; }
+  save();
+}
+
+// Fires on touch-down for speed; Enter/Space (click with no pointer) still works for keyboards.
+const tapBtn = (cls, label, fn, disabled = false) => el('button', {
+  type: 'button', class: 'sw-btn ' + cls, disabled,
+  onpointerdown: (ev) => { if (ev.button > 0) return; ev.preventDefault(); if (navigator.vibrate) navigator.vibrate(12); fn(eventPerf(ev)); },
+  onclick: (ev) => { if (ev.detail === 0) fn(performance.now()); },
+}, label);
+
+let swWake = null;
+function swAwake(on) {
+  if (on && 'wakeLock' in navigator && (!swWake || swWake.released)) navigator.wakeLock.request('screen').then((w) => { swWake = w; }).catch(() => {});
+  if (!on && swWake) { swWake.release().catch(() => {}); swWake = null; }
+}
 
 function viewStopwatch(box, rerender) {
   const s = T().stopwatch;
@@ -125,50 +160,55 @@ function viewStopwatch(box, rerender) {
   const avg = lapTimes.length ? lapTimes.reduce((x, y) => x + y, 0) / lapTimes.length : 0;
   const running = !!s.since, any = elapsed(s) > 0;
   const cur = () => elapsed(s) - (lapsAt.length ? lapsAt[lapsAt.length - 1] : 0);
+  swAwake(running);
 
-  const tot = el('div', { class: 'big-time sw' }, clock(elapsed(s), true));
-  const curLap = el('span', { class: 'lap-cur' }, clock(cur(), true));
-  const liveLap = el('span', { class: 'lap-t' }, clock(cur(), true));
-  const liveTot = el('span', { class: 'muted' }, clock(elapsed(s), true));
+  const tot = el('div', { class: 'big-time sw' }, ms3(elapsed(s)));
+  const curLap = el('span', { class: 'lap-cur' }, ms3(cur()));
+  const liveLap = el('span', { class: 'lap-t' }, ms3(cur()));
+  const liveTot = el('span', { class: 'muted' }, ms3(elapsed(s)));
 
-  const lap = () => { s.laps.push(elapsed(s)); save(); rerender(); };
-  const reset = () => { s.base = 0; s.since = null; s.laps = []; save(); rerender(); };
+  const lap = (perf) => { s.laps.push(Math.round(elapsedAt(s, perf))); save(); rerender(); };
+  const reset = () => { s.base = 0; s.since = null; s.laps = []; anchor = null; save(); rerender(); };
+  const startStop = (perf) => { toggleAt(s, perf); if (!s.since) s.base = Math.round(s.base); rerender(); };
 
   const rows = lapTimes.map((lt, i) => {
     const diff = i ? lt - lapTimes[i - 1] : null;
     return el('div', { class: 'lap-row' + (lt === best ? ' best' : lt === worst ? ' worst' : '') },
       el('span', {}, `Lap ${i + 1}`),
-      el('span', { class: 'lap-t' }, clock(lt, true),
-        diff != null && lapTimes.length > 1 ? el('small', { class: 'lap-diff ' + (diff <= 0 ? 'good-t' : 'bad-t') }, `${diff <= 0 ? '−' : '+'}${clock(Math.abs(diff), true)}`) : null),
-      el('span', { class: 'muted' }, clock(lapsAt[i], true)));
+      el('span', { class: 'lap-t' }, ms3(lt),
+        diff != null ? el('small', { class: 'lap-diff ' + (diff < 0 ? 'good-t' : diff > 0 ? 'bad-t' : 'muted') }, diff ? `${diff < 0 ? '−' : '+'}${ms3(Math.abs(diff))}` : 'same') : null),
+      el('span', { class: 'muted' }, ms3(lapsAt[i])));
   }).reverse();
-  // While going, the lap in progress sits at the top of the list and counts up.
   const liveRow = any && (running || lapsAt.length) ? el('div', { class: 'lap-row live' },
     el('span', {}, `Lap ${lapsAt.length + 1}`), liveLap, liveTot) : null;
 
-  box.append(el('div', { class: 'card timer-card' },
+  box.append(el('div', { class: 'card timer-card sw-card' + (running ? ' running' : '') },
     el('div', { class: 'muted small center' }, running ? 'Running' : any ? 'Stopped' : 'Ready'),
     tot,
-    lapsAt.length ? el('div', { class: 'muted small center' }, `Lap ${lapsAt.length + 1}: `, curLap) : null,
-    el('div', { class: 'btn-pair' },
-      running
-        ? el('button', { type: 'button', class: 'btn big-btn', onclick: lap }, 'Lap')
-        : el('button', { type: 'button', class: 'btn big-btn', disabled: !any, onclick: reset }, 'Reset'),
-      el('button', { type: 'button', class: 'btn big-btn ' + (running ? 'stop-btn' : 'primary'), onclick: () => { toggle(s); rerender(); } }, running ? 'Stop' : any ? 'Continue' : 'Start'))),
+    el('div', { class: 'muted small center sw-curlap' }, lapsAt.length ? [`Lap ${lapsAt.length + 1}: `, curLap] : ' '),
+    el('div', { class: 'sw-btns' },
+      running ? tapBtn('lap', 'Lap', lap) : tapBtn('reset', 'Reset', reset, !any),
+      running ? tapBtn('stop', 'Stop', startStop) : tapBtn('go', any ? 'Continue' : 'Start', startStop))),
   lapTimes.length ? el('div', { class: 'card' },
     lapTimes.length > 1 ? el('div', { class: 'lap-sum' },
-      el('div', {}, el('span', { class: 'muted small' }, 'Fastest'), el('b', { class: 'good-t' }, clock(best, true))),
-      el('div', {}, el('span', { class: 'muted small' }, 'Average'), el('b', {}, clock(avg, true))),
-      el('div', {}, el('span', { class: 'muted small' }, 'Slowest'), el('b', { class: 'bad-t' }, clock(worst, true)))) : null,
+      el('div', {}, el('span', { class: 'muted small' }, 'Fastest'), el('b', { class: 'good-t' }, ms3(best))),
+      el('div', {}, el('span', { class: 'muted small' }, 'Average'), el('b', {}, ms3(avg))),
+      el('div', {}, el('span', { class: 'muted small' }, 'Slowest'), el('b', { class: 'bad-t' }, ms3(worst)))) : '',
     el('div', { class: 'lap-head muted small' }, el('span', {}, 'Lap'), el('span', {}, 'Lap time'), el('span', {}, 'Total')),
     liveRow, rows) : '',   // '' not null: box.append would print "null"
-  el('p', { class: 'muted small center' }, lapTimes.length
-    ? 'Fastest lap shows green, slowest red; the small figure is the change from the lap before. Keeps running if you leave this screen or close the app.'
-    : 'Tap Start, then Lap each time round — or just Start and Stop for a plain stopwatch. Keeps running if you leave this screen or close the app.'));
-  return () => {
-    const e = elapsed(s), c = clock(cur(), true);
-    tot.textContent = clock(e, true); curLap.textContent = c; liveLap.textContent = c; liveTot.textContent = clock(e, true);
+  el('p', { class: 'muted small center' }, 'Buttons react the instant you touch them, timed to the millisecond. ',
+    lapTimes.length ? 'Fastest lap green, slowest red; the small figure is the change from the lap before. ' : 'Tap Start, then Lap each time round — or just Start and Stop. ',
+    'The screen stays on while it runs, and it keeps going if you leave this screen.'));
+
+  // Redraw every screen frame (not every 0.1 s) so the thousandths actually move.
+  const draw = () => {
+    if (!tot.isConnected) return;
+    const e = elapsed(s), c = ms3(cur());
+    tot.textContent = ms3(e); curLap.textContent = c; liveLap.textContent = c; liveTot.textContent = ms3(e);
+    if (s.since) requestAnimationFrame(draw);
   };
+  requestAnimationFrame(draw);
+  return null;
 }
 
 /* ---------- Egg timer ---------- */
@@ -297,10 +337,14 @@ function viewEggs(box, rerender) {
   return null;
 }
 
+/** Called when the Alarm & timers panel closes. */
+export function leave() { swAwake(false); }
+
 const VIEWS = { timer: viewTimer, stopwatch: viewStopwatch, laps: viewStopwatch, eggs: viewEggs, meds: (box, rerender) => viewMeds(box, rerender, T().meds) };
 
 /** Draws one timer screen into `box`; returns a function that refreshes the live numbers. */
 export function renderView(v, box, rerender) {
   T();
+  if (v !== 'stopwatch' && v !== 'laps') swAwake(false);
   return (VIEWS[v] || viewTimer)(box, rerender);
 }

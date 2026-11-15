@@ -529,7 +529,7 @@ function render() {
   const body = el('div', { class: 'alarm-view' });
   box.append(body);
   liveUpdate = null;
-  if (v === 'alarms') renderAlarms(body);
+  if (v === 'alarms') { timers.leave(); renderAlarms(body); }
   else liveUpdate = timers.renderView(v, body, render);
 }
 
@@ -539,7 +539,7 @@ function show() {
   clearInterval(liveTimer);
   liveTimer = setInterval(() => { if (liveUpdate) liveUpdate(); }, 100);
 }
-function hide() { panelOpen = false; clearInterval(liveTimer); liveTimer = null; liveUpdate = null; stopPreview(); }
+function hide() { timers.leave(); panelOpen = false; clearInterval(liveTimer); liveTimer = null; liveUpdate = null; stopPreview(); }
 
 export function register({ registerTool }) {
   registerTool({ id: 'alarm', title: 'Alarm & timers', icon: '⏰', desc: 'Sunrise alarms, timers, stopwatch, eggs, meds', panel: 'alarm', show, hide, order: 5 });

@@ -711,7 +711,19 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 /* Timers */
 .timer-card { text-align: center; }
 .big-time { font-size: min(19vw, 84px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.05; letter-spacing: -1px; margin: 6px 0; }
-.big-time.sw { font-size: min(16vw, 76px); }
+.big-time.sw { font-size: min(14vw, 80px); letter-spacing: -1.5px; }
+.sw-curlap { min-height: 1.4em; }
+.sw-btns { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 14px 2px 4px; }
+.sw-btn { width: min(40vw, 200px); aspect-ratio: 1; border-radius: 50%; border: 0; font-size: clamp(20px, 6vw, 30px); font-weight: 800;
+  display: grid; place-items: center; cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; transition: transform .06s, filter .06s;
+  box-shadow: 0 0 0 4px var(--surface), 0 0 0 6px var(--sw-ring, transparent); }
+.sw-btn:active:not(:disabled) { transform: scale(.95); filter: brightness(1.2); }
+.sw-btn:disabled { opacity: .35; cursor: default; }
+.sw-btn.go { background: var(--green); color: #032015; --sw-ring: rgba(52,211,153,.45); }
+.sw-btn.stop { background: var(--red); color: #2b0505; --sw-ring: rgba(248,113,113,.45); }
+.sw-btn.lap, .sw-btn.reset { background: #343c50; color: var(--text); --sw-ring: rgba(255,255,255,.18); }
+@media (min-width: 700px) { .sw-btns { justify-content: center; gap: 15%; } }
 .tbar { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 6px 0 8px; }
 .tbar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); border-radius: inherit; transition: width .1s linear; }
 .num-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
