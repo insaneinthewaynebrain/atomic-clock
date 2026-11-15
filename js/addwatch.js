@@ -56,7 +56,18 @@ function identify(ctx) {
     brands.map((b) => el('option', { value: b, selected: b === startBrand }, b)), el('option', { value: '__add' }, '＋ Add a brand…'));
   const brandNew = el('input', { class: 'input brand-new', type: 'text', placeholder: 'Brand name', autocapitalize: 'words', hidden: true });
   brandSel.addEventListener('change', () => { brandNew.hidden = brandSel.value !== '__add'; if (!brandNew.hidden) brandNew.focus(); });
-  const brandTag = sf.brand && startBrand === sf.brand ? el('span', { class: 'tag-read' }, 'read from the dial') : null;
+  const guessed = !!scan?.guesses?.length && !scan.found?.some(([k]) => k === 'Brand');
+  const brandTag = sf.brand && startBrand === sf.brand ? el('span', { class: 'tag-read' + (guessed ? ' guess' : '') }, guessed ? 'best guess from the dial' : 'read from the dial') : null;
+  // Other brands the dial fragment could be: tap one to choose it.
+  const pickBrand = (b) => {
+    if (![...brandSel.options].some((o) => o.value === b)) brandSel.insertBefore(el('option', { value: b }, b), brandSel.options[1]);
+    brandSel.value = b; brandNew.hidden = true;
+    if (brandTag) brandTag.hidden = b !== sf.brand;
+  };
+  const chips = guessed && scan.guesses.length > 1
+    ? el('div', { class: 'guess-row' }, el('span', { class: 'muted small' }, `Read “${scan.guesses[0].from}” — could be:`),
+      scan.guesses.map((g) => el('button', { type: 'button', class: 'chip', onclick: () => pickBrand(g.brand) }, g.brand)))
+    : null;
 
   const refIn = el('input', { class: 'input', type: 'text', value: a.reference || '', placeholder: 'e.g. SKX007, 126610LN', autocapitalize: 'characters', spellcheck: false });
   const refUnknown = el('input', { type: 'checkbox', class: 'check', checked: !!a.refUnknown });
@@ -77,7 +88,7 @@ function identify(ctx) {
       ' ', scan.found.map(([k, v]) => `${v}`).join(' · ')));
   }
   content.push(
-    el('label', { class: 'field' }, el('span', {}, 'Brand ', brandTag), brandSel, brandNew),
+    el('label', { class: 'field' }, el('span', {}, 'Brand ', brandTag), brandSel, brandNew), chips,
     el('label', { class: 'field' }, el('span', {}, 'Model reference'), refIn),
     el('label', { class: 'field check-field' }, refUnknown, el('span', {}, 'I don’t know the reference')),
     el('p', { class: 'muted small' }, 'The reference is the best way to find the details. It’s usually on the case back, the papers or the warranty card, or engraved between the lugs.'),

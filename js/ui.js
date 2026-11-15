@@ -46,7 +46,8 @@ export function openModal({ title, content, actions = [], onClose, className = '
     box.append(row);
   }
   dlg.append(box);
-  dlg.onclose = () => { current = null; onClose && onClose(); };
+  // A replaced modal's close event arrives after the new one has opened: ignore it while the dialog is open again.
+  dlg.onclose = () => { if (dlg.open) return; current = null; onClose && onClose(); };
   dlg.onclick = (e) => { if (e.target === dlg) close(); };
   dlg.showModal();
   current = { close, body, dlg };

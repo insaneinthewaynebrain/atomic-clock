@@ -46,13 +46,19 @@ function blobImage(blob) {
   });
 }
 
-/** Greyscale, stretched contrast; `invert` for light text on dark dials. */
-function prepared(img, invert) {
-  const W = 1200, H = Math.round((img.naturalHeight / img.naturalWidth) * W);
+/**
+ * Greyscale, stretched contrast; `invert` for light text on dark dials.
+ * `crop` = [x, y, w, h] as fractions of the picture, enlarged to fill the output (makes small lettering readable).
+ */
+function prepared(img, invert, crop = [0, 0, 1, 1]) {
+  const [cx, cy, cw, ch] = crop;
+  const sw = img.naturalWidth * cw, sh = img.naturalHeight * ch;
+  const W = 1200, H = Math.round((sh / sw) * W);
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d', { willReadFrequently: true });
-  g.drawImage(img, 0, 0, W, H);
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  g.drawImage(img, img.naturalWidth * cx, img.naturalHeight * cy, sw, sh, 0, 0, W, H);
   const d = g.getImageData(0, 0, W, H);
   const p = d.data;
   let lo = 255, hi = 0;
@@ -78,12 +84,17 @@ function prepared(img, invert) {
 export async function scanDial(blob, onWord = () => {}) {
   const [w, img] = await Promise.all([worker(), blobImage(blob)]);
   const texts = [];
-  for (const invert of [false, true]) {
-    const { data } = await w.recognize(prepared(img, invert));
-    const good = (data.words || []).filter((x) => x.confidence > 45 && /[A-Za-z0-9]{2,}/.test(x.text));
+  const faint = [];          // low-confidence pieces, still useful for guessing the brand ("..IKO" → Seiko)
+  // Whole dial, then an enlarged crop of the upper middle, where the brand name nearly always sits.
+  const passes = [[false, undefined], [true, undefined], [false, [0.14, 0.1, 0.72, 0.5]], [true, [0.14, 0.1, 0.72, 0.5]]];
+  for (const [invert, crop] of passes) {
+    const { data } = await w.recognize(prepared(img, invert, crop));
+    const all = (data.words || []).filter((x) => /[A-Za-z0-9]{2,}/.test(x.text));
+    const good = all.filter((x) => x.confidence > 45);
     good.forEach((x) => onWord(x.text));
+    all.filter((x) => x.confidence <= 45 && x.confidence > 10).forEach((x) => faint.push(x.text));
     texts.push(good.map((x) => x.text).join(' '));
   }
   const text = texts.join(' ');
-  return { text, ...parseDial(text) };
+  return { text, ...parseDial(text, faint) };
 }

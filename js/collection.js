@@ -2,7 +2,7 @@
 // Wear tracking (on the wrist, power reserve, wear calendar) is added by wrist.js through the hooks below.
 import * as store from './store.js';
 import { el, openModal, confirmModal, toast } from './ui.js';
-import { addPhoto, deletePhoto, fillImg } from './photos.js';
+import { addPhoto, deletePhoto, fillImg, photoUrl } from './photos.js';
 import { watchStats, fmtRate, grade } from './accuracy.js';
 import { captureFace } from './camera.js';
 import { addWatch } from './addwatch.js';
@@ -76,9 +76,19 @@ export function wearPastYear(id) {
 export function faceEl(w, kind = 'thumb', cls = '') {
   const shape = w.face ? (w.faceShape || 'circle') : 'circle';
   const box = el('div', { class: `face face-${shape} ${cls}` });
-  const id = w.face || w.photos?.[0];
-  if (id) { const i = el('img', { alt: w.name || 'Watch', loading: 'lazy' }); fillImg(i, id, kind); box.append(i); }
-  else box.append(el('span', { class: 'face-ph' }, '⌚'));
+  // Placeholder first; the picture replaces it once loaded. A missing picture (e.g. deleted) falls back to the
+  // main photo, then stays as the placeholder — never a broken image.
+  box.append(el('span', { class: 'face-ph' }, '⌚'));
+  const ids = [w.face, w.photos?.[0]].filter(Boolean);
+  (async () => {
+    for (const id of ids) {
+      const u = await photoUrl(id, kind);
+      if (!u) continue;
+      if (id !== w.face) box.className = `face face-circle ${cls}`;
+      box.replaceChildren(el('img', { alt: w.name || 'Watch', src: u }));
+      return;
+    }
+  })();
   return box;
 }
 

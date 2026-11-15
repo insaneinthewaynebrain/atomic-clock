@@ -209,11 +209,69 @@ function lev(a, b) {
   return m[a.length][b.length];
 }
 
+/* ---------- Guessing a brand from partial or misread words ---------- */
+// Brands people are most likely to photograph get a small nudge when a fragment fits several.
+const COMMON = new Set(['Seiko', 'Rolex', 'Omega', 'Casio', 'Citizen', 'Tudor', 'Tissot', 'Hamilton', 'Orient', 'Longines', 'TAG Heuer',
+  'Breitling', 'G-Shock', 'Grand Seiko', 'Oris', 'Sekonda', 'Rotary', 'Timex', 'Bulova', 'Swatch', 'Accurist', 'Christopher Ward', 'Fossil']);
+const clean = (w) => String(w || '').toUpperCase()
+  .replace(/RN/g, 'M').replace(/VV/g, 'W').replace(/0/g, 'O').replace(/1/g, 'I').replace(/5/g, 'S').replace(/8/g, 'B').replace(/\$/g, 'S')
+  .replace(/[^A-Z]/g, '');
+
+// Ordinary words printed on dials: never treated as a piece of a brand name.
+const DIAL_WORDS = new Set(('THE AND FOR WITH MADE JAPAN SWISS SWITZERLAND GERMANY CHINA WATER RESIST RESISTANT AUTO AUTOMATIC QUARTZ '
+  + 'DATE DAY GMT UTC JEWELS JEWEL DIVER DIVERS METERS METRES FEET BAR ATM SOLAR KINETIC CHRONOGRAPH CHRONOMETER OFFICIALLY CERTIFIED '
+  + 'SUPERLATIVE PERPETUAL PROFESSIONAL LIMITED EDITION SPORT SPORTS STEEL STAINLESS TITANIUM GOLD SAPPHIRE TACHYMETER TACHYMETRE '
+  + 'HAND WOUND MANUAL POWER RESERVE MOVT MOVEMENT SECONDS MINUTES HOURS TWO THREE FOUR FIVE SIX TEN TWELVE').split(' '));
+
+/**
+ * Best guesses for the brand from words read off a dial, even partial ones ("IKO" → Seiko, "ROLE" → Rolex).
+ * @param {string[]} words  everything the reader saw, low-confidence words included
+ * @returns {{brand:string, score:number, from:string}[]}  best first (score 0–1)
+ */
+export function guessBrands(words) {
+  const targets = [];
+  for (const b of BRANDS) {
+    const full = clean(b);
+    if (full.length >= 3) targets.push([full, b]);
+    for (const part of b.split(/[\s&.-]+/)) { const c = clean(part); if (c.length >= 4 && c !== full) targets.push([c, b, true]); }
+  }
+  for (const [w, b] of DIAL_HINTS) { const c = clean(w); if (c.length >= 4) targets.push([c, b, true]); }
+  const best = new Map();
+  const list = [...words];
+  for (let i = 0; i + 1 < words.length; i++) list.push(`${words[i]} ${words[i + 1]}`);   // two-word names read as two words
+  for (const raw of list) {
+    const w = clean(raw);
+    if (w.length < 3 || DIAL_WORDS.has(w)) continue;
+    for (const [t, brand, partial] of targets) {
+      let sc = 0;
+      const ratio = Math.min(w.length, t.length) / Math.max(w.length, t.length);
+      if (w === t) sc = 1 + t.length / 100;     // a longer exact match (GRAND SEIKO) beats a shorter one (SEIKO)
+      else if (w.length >= 4 && lev(w, t) <= Math.max(1, Math.floor(t.length / 4))) sc = 0.9 - 0.12 * lev(w, t);
+      else if (w.includes(t) && t.length >= 4) sc = 0.85;
+      else if (t.startsWith(w)) sc = 0.5 + 0.4 * ratio;
+      else if (t.endsWith(w)) sc = 0.48 + 0.4 * ratio;
+      else if (w.length >= 4 && t.includes(w)) sc = 0.42 + 0.35 * ratio;
+      if (!sc) continue;
+      if (partial) sc -= 0.1;                  // a sub-name (e.g. PROSPEX, or SEIKO inside Grand Seiko) is a weaker sign
+      if (COMMON.has(brand)) sc += 0.04;
+      const prev = best.get(brand);
+      if (!prev || sc > prev.score) best.set(brand, { brand, score: sc, from: String(raw) });
+    }
+  }
+  const out = [...best.values()].sort((a, b) => b.score - a.score);
+  // A short fragment that fits many brands equally ("RO") is weak: knock the top score down by how crowded it is.
+  if (out.length > 1 && out[0].score < 0.9) {
+    const close = out.filter((g) => out[0].score - g.score < 0.06).length;
+    if (close > 1) out[0] = { ...out[0], score: out[0].score - 0.05 * (close - 1) };
+  }
+  return out.filter((g) => g.score >= 0.55).slice(0, 4).map((g) => ({ ...g, score: Math.min(1, g.score) }));
+}
+
 /**
  * Turns text read from a dial into form values.
  * Returns { fields: {k: v}, found: [[label, value], ...] } — `found` is what to show the person.
  */
-export function parseDial(raw) {
+export function parseDial(raw, extraWords = []) {
   const text = ' ' + String(raw || '').toUpperCase()
     .replace(/[‘’`]/g, "'").replace(/[|]/g, 'I')
     .replace(/(\d)[OQ]/g, '$10').replace(/[OQ](\d)/g, '0$1')
@@ -232,6 +290,14 @@ export function parseDial(raw) {
     for (const h of hints) {
       if (h[0].includes(' ') || h[0].length < 5) continue;
       if (words.some((w) => w.length >= 4 && lev(w, h[0]) <= 1)) { hit = h; break; }
+    }
+  }
+  let guesses = [];
+  if (!hit) {
+    guesses = guessBrands([...words, ...extraWords]);
+    if (guesses.length) {
+      fields.brand = guesses[0].brand;
+      found.push(['Brand (best guess)', `${guesses[0].brand} — from “${guesses[0].from}”`]);
     }
   }
   if (hit) {
@@ -276,7 +342,7 @@ export function parseDial(raw) {
   if (/POWER ?RESERVE|RESERVE DE MARCHE/.test(text)) { fields.fPowerInd = true; found.push(['Function', 'Power-reserve indicator']); }
   if (/CHRONOMETER|CHRONOMETRE|COSC/.test(text)) { fields.chronometer = true; found.push(['Certified', 'Chronometer']); }
 
-  return { fields, found };
+  return { fields, found, guesses };
 }
 
 /** Chrono24 search for this watch on the site for the person's currency. */
