@@ -12,7 +12,9 @@ A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouT
   opens the camera with a circle, square or tall-rectangle guide: fill it with the watch head and only that
   is kept as the watch's face picture. With the circle guide the app looks for the round bezel as you aim
   (`js/dialfind.js`: walks round candidate circles checking for an edge crossing them, settles on the centre shared by the most rings, then takes the outermost; no AI model) and snaps the crop to it; a photo picked from the
-  library with a transparent background (iPhone "lift subject") is kept as a cut-out PNG. Pressing the shutter runs a film-style scan that reads the dial on the
+  library with a transparent background (iPhone "lift subject") is kept as a cut-out PNG. With "Auto photo" on (the default),
+  holding the found dial steady for about a second takes the photo by itself, and the result screen carries on
+  after a short countdown (any touch stops it) — hands-free with the watch on your wrist. Pressing the shutter runs a film-style scan that reads the dial on the
   phone (brand, automatic/quartz, jewels, water resistance, GMT/chronograph/date when written on the dial). Then
   "Which watch is it?" (brand dropdown with "Add a brand", reference or "I don't know", a name, year or "I don't
   know"), a look-up that cross-checks the dial against the built-in reference list (popular models and

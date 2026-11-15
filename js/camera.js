@@ -48,6 +48,9 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     let snap = null;                // { x, y, r, t } dial found on screen (Circle guide only)
     let cutout = false;             // library photo with a transparent background (iPhone "lift subject")
     let busy = false;               // preview or scan showing
+    let hold = null;                // auto-capture: { since, timer } while the found dial holds steady
+    let autoShot = false;           // this picture was taken automatically
+    let steadyRun = 0;              // looks in a row where the dial hasn't moved
 
     const dlg = el('dialog', { class: 'cam' });
     const stage = el('div', { class: 'cam-stage' });
@@ -56,7 +59,9 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     const frame = el('div', { class: 'cam-frame' });
     const hint = el('div', { class: 'cam-hint' }, 'Fill the shape with the watch head — dial and bezel');
     const msg = el('div', { class: 'cam-msg', hidden: true });
-    const ring = el('div', { class: 'cam-snap', hidden: true }, el('span', {}, 'Dial found'));
+    const ringLabel = el('span', {}, 'Dial found');
+    const ring = el('div', { class: 'cam-snap', hidden: true }, ringLabel,
+      el('div', { class: 'snap-prog', html: '<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" pathLength="100"/></svg>' }));
     stage.append(video, frame, ring, hint, msg);
 
     const shapeBtns = [...SHAPES, ['cutout', 'Cut-out']].map(([v, lab]) => {
@@ -111,7 +116,19 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     shotIn.addEventListener('change', onFile(shotIn));
 
     const shutter = el('button', { type: 'button', class: 'cam-shutter', 'aria-label': 'Take picture', onclick: () => take() });
-    const topEl = el('div', { class: 'cam-top' }, el('div', { class: 'cam-title' }, title), el('div', { class: 'cam-shapes' }, shapeBtns), handBtn);
+    // Auto-capture: takes the photo itself once the dial is found and held steady (hands-free with a watch on).
+    const autoBtn = el('button', { type: 'button', class: 'cam-hand cam-auto', onclick: () => {
+      data0.camAuto = !autoOn(); store.save(); setAuto(); cancelHold();
+    } });
+    const autoOn = () => data0.camAuto !== false;
+    function setAuto() {
+      autoBtn.textContent = autoOn() ? '⚡ Auto photo: on' : '⚡ Auto photo: off';
+      autoBtn.classList.toggle('on', autoOn());
+      autoBtn.setAttribute('aria-pressed', String(autoOn()));
+      setHint();
+    }
+    const topEl = el('div', { class: 'cam-top' }, el('div', { class: 'cam-title' }, title), el('div', { class: 'cam-shapes' }, shapeBtns),
+      el('div', { class: 'cam-toggles' }, autoBtn, handBtn));
     let controls;
     const bar = el('div', { class: 'cam-bar' },
       topEl,
@@ -128,7 +145,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     document.body.append(dlg);
     dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
     dlg.showModal();
-    setHand(); setZoomUI(); setHint();
+    setHand(); setZoomUI(); setAuto();
     stage.tabIndex = -1;
     stage.focus({ preventScroll: true });   // no button starts highlighted
 
@@ -149,7 +166,8 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     function setHint() {
       hint.textContent = cur === 'cutout' ? 'Cut-out photo — the watch keeps its own outline'
         : still ? 'Drag and pinch to fit the watch head in the shape'
-          : cur === 'circle' ? 'Fill the circle with the watch head — it snaps to the dial when found'
+          : cur === 'circle' ? (autoOn() ? 'Fill the circle with the watch head and hold still — it takes the photo itself'
+            : 'Fill the circle with the watch head — it snaps to the dial when found')
             : 'Fill the shape with the watch head — dial and bezel';
     }
     /** Guide position for the current shape, fitted between the top and bottom controls. */
@@ -279,7 +297,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     // Live dial finding (Circle guide): look in and around the guide a few times a second.
     const LOOK = 160;
     function lookForDial() {
-      if (done || busy || cur !== 'circle') { ring.hidden = true; return; }
+      if (done || busy || cur !== 'circle') { ring.hidden = true; cancelHold(); return; }
       const [vw, vh] = natural();
       if (!vw || !vh) return;
       const f = fit();
@@ -287,16 +305,38 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       const area = { x: f.x + f.w / 2 - side / 2, y: f.y + f.h / 2 - side / 2, w: side, h: side };
       let found = null;
       try { found = findDial(grab(area, LOOK, LOOK).getContext('2d').getImageData(0, 0, LOOK, LOOK)); } catch (e) { found = null; }
-      if (!found) { if (!snap || Date.now() - snap.t > 900) { snap = null; ring.hidden = true; } return; }
+      if (!found) { if (!snap || Date.now() - snap.t > 900) { snap = null; ring.hidden = true; cancelHold(); } return; }
       const k = side / LOOK;
       const nx = area.x + found.cx * k, ny = area.y + found.cy * k, nr = found.r * k * 1.05;   // a little outside the bezel, so it's never clipped
       // You framed the watch to fill the guide, so a real bezel is about the guide's size. A "dial" much smaller
       // (a ring inside the lettering) or much bigger (the case and strap) isn't it: keep your framing instead.
-      if (nr < (f.w / 2) * 0.8 || nr > (f.w / 2) * 1.45) { if (!snap || Date.now() - snap.t > 900) { snap = null; ring.hidden = true; } return; }
+      if (nr < (f.w / 2) * 0.8 || nr > (f.w / 2) * 1.45) { if (!snap || Date.now() - snap.t > 900) { snap = null; ring.hidden = true; cancelHold(); } return; }
+      // Steady? (centre and size within 7% of the last look) — needed before taking the photo automatically.
+      const steady = snap && Math.hypot(nx - snap.x, ny - snap.y) < snap.r * 0.07 && Math.abs(nr - snap.r) < snap.r * 0.07;
       // Smooth so the ring doesn't jitter.
       snap = snap ? { x: snap.x * 0.5 + nx * 0.5, y: snap.y * 0.5 + ny * 0.5, r: snap.r * 0.5 + nr * 0.5, t: Date.now() } : { x: nx, y: ny, r: nr, t: Date.now() };
       Object.assign(ring.style, { left: snap.x - snap.r + 'px', top: snap.y - snap.r + 'px', width: snap.r * 2 + 'px', height: snap.r * 2 + 'px' });
       ring.hidden = false;
+      steadyRun = steady ? steadyRun + 1 : 0;
+      if (autoOn() && !still) { if (steadyRun >= 2) startHold(); else cancelHold(); }
+    }
+    // Auto-capture: the ring fills over HOLD_MS while the dial stays put, then the photo is taken.
+    const HOLD_MS = 1100;
+    function startHold() {
+      if (hold) return;
+      ring.classList.add('holding'); ringLabel.textContent = 'Hold still…';
+      hold = { since: Date.now(), timer: setTimeout(() => {
+        hold = null;
+        // Only if it's still steady right now (the last look agreed), not just at the start.
+        if (done || busy || ring.hidden || !snap || Date.now() - snap.t > 800 || steadyRun < 3) { cancelHold(); return; }
+        ringLabel.textContent = 'Got it';
+        autoShot = true;
+        take();
+      }, HOLD_MS) };
+    }
+    function cancelHold() {
+      if (hold) { clearTimeout(hold.timer); hold = null; steadyRun = 0; }
+      ring.classList.remove('holding'); ringLabel.textContent = 'Dial found';
     }
     // Self-paced: wait at least twice as long as the last look took, so the viewfinder stays smooth on any phone.
     let looker = null;
@@ -328,6 +368,8 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     }
 
     async function take() {
+      const auto = autoShot; autoShot = false;
+      cancelHold();
       const [vw, vh] = natural();
       if (!vw || !vh) { toast('The camera isn’t ready yet'); return; }
       shutter.disabled = true;
@@ -346,6 +388,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
         } else main = mine;
       }
       if (!main.blob) { shutter.disabled = false; busy = false; toast('Could not take the picture'); return; }
+      main.auto = auto;
       if (scan) runScan(main, alt); else preview(main, alt);
     }
 
@@ -419,13 +462,22 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
         drawFace();
       } }, 'Use my framing instead') : null;
       const note = el('div', { class: 'cam-pv-note' }, main.how === 'snap' ? '✓ Snapped to the dial' : main.shape === 'cutout' ? '✓ Cut out from the photo' : '');
-      const close = () => { if (url) URL.revokeObjectURL(url); };
+      const close = () => { if (url) URL.revokeObjectURL(url); clearTimeout(go); };
+      const goBtn = el('button', { type: 'button', class: 'btn primary', onclick: () => { close(); finish({ blob: pick.blob, shape: pick.shape, scan: result }); } }, result ? 'Continue' : 'Use picture');
+      // Taken automatically: carry on by itself after a short countdown; any touch stops it.
+      const AUTO_S = 4;
+      const bar = main.auto ? el('div', { class: 'cam-autogo' }, el('i', { style: `animation-duration:${AUTO_S}s` })) : null;
+      const autoNote = main.auto ? el('div', { class: 'muted small' }, `Carrying on in ${AUTO_S} seconds — tap anywhere to stop`) : null;
+      let go = main.auto ? setTimeout(() => goBtn.click(), AUTO_S * 1000) : null;
+      const stopAuto = () => { if (!go) return; clearTimeout(go); go = null; bar?.remove(); autoNote?.remove(); };
       const pv = el('div', { class: 'cam-preview' },
         faceBox, note, swap,
         info || el('p', { class: 'muted' }, 'Is the whole watch head in the picture?'),
         el('div', { class: 'cam-msg-btns' },
           el('button', { type: 'button', class: 'btn', onclick: () => { close(); pv.remove(); busy = false; shutter.disabled = false; dlg.classList.remove('flash'); if (!still) video.play().catch(() => {}); } }, 'Retake'),
-          el('button', { type: 'button', class: 'btn primary', onclick: () => { close(); finish({ blob: pick.blob, shape: pick.shape, scan: result }); } }, result ? 'Continue' : 'Use picture')));
+          goBtn),
+        bar, autoNote);
+      pv.addEventListener('pointerdown', (e) => { if (e.target !== goBtn) stopAuto(); }, true);
       dlg.append(pv);
     }
 

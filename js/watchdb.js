@@ -266,13 +266,23 @@ export function guessBrands(words) {
       else if (t.endsWith(w)) sc = 0.48 + 0.4 * ratio;
       else if (w.length >= 4 && t.includes(w)) sc = 0.42 + 0.35 * ratio;
       if (!sc) continue;
+      if (w !== t) {
+        if (w.length === 3) sc -= 0.08;                                 // a lone 3-letter scrap is weak evidence
+        if (!/[A-Z]/.test(String(raw).replace(/[^A-Za-z]/g, '').slice(0, 3))) sc -= 0.1;   // dial logos are capitals; "ome" is likely junk
+      }
       if (partial) sc -= 0.1;                  // a sub-name (e.g. PROSPEX, or SEIKO inside Grand Seiko) is a weaker sign
       if (COMMON.has(brand)) sc += 0.04;
       const prev = best.get(brand);
-      if (!prev || sc > prev.score) best.set(brand, { brand, score: sc, from: String(raw) });
+      if (!prev) best.set(brand, { brand, score: sc, from: String(raw), seen: new Set([w]), hits: 1 });
+      else {
+        prev.hits++;                                                    // the same evidence read again in another pass
+        if (sc > prev.score) { prev.score = sc; prev.from = String(raw); }
+      }
     }
   }
-  const out = [...best.values()].sort((a, b) => b.score - a.score);
+  // Read again and again (several passes, or several fragments) → more believable.
+  for (const g of best.values()) g.score += Math.min(0.12, 0.04 * (g.hits - 1));
+  const out = [...best.values()].sort((a, b) => b.score - a.score).map(({ brand, score, from }) => ({ brand, score, from }));
   // A short fragment that fits many brands equally ("RO") is weak: knock the top score down by how crowded it is.
   if (out.length > 1 && out[0].score < 0.9) {
     const close = out.filter((g) => out[0].score - g.score < 0.06).length;
