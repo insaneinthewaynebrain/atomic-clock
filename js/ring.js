@@ -23,14 +23,7 @@ export function ringAlert(opts) {
   stopPreview();
   cur = opts;
   started = Date.now();
-  const overlay = el('div', { id: 'alarm-ring', class: 'alarm-ring' + (opts.sunlit ? ' sunlit' : ''), role: 'alertdialog', 'aria-label': opts.title || 'Alarm',
-    onpointerdown: () => {
-      unlockAudio();
-      // A tap always allows sound: start the recorded tone directly if it isn't already playing.
-      if (cur && mode !== 'element') alarmSound.start(toneOf(cur), 1).then((ok) => { if (ok && cur) { player?.stop(); player = null; stopBackup(); backupOn = false; mode = 'element'; } });
-      setTimeout(beat, 150);
-    } },
-    el('div', { class: 'ar-mute', id: 'ar-mute', hidden: true }, '🔇 Tap anywhere to turn the sound on'),
+  const overlay = el('div', { id: 'alarm-ring', class: 'alarm-ring' + (opts.sunlit ? ' sunlit' : ''), role: 'alertdialog', 'aria-label': opts.title || 'Alarm' },
     el('div', { class: 'ar-sound', id: 'ar-sound' }, 'Sound: starting…'),
     el('div', { class: 'ar-icon' }, opts.icon || '⏰'),
     el('div', { class: 'ar-time', id: 'ar-time' }, ''),
@@ -99,20 +92,18 @@ function beat() {
     alarmSound.setVolume(v);
     if (!alarmSound.playing()) alarmSound.start(tone, v).then((ok) => { if (!ok && cur) mode = 'webaudio'; });
     if (status) status.textContent = '🔊 Sound on';
-    const mm = $('ar-mute'); if (mm) mm.hidden = true;
   } else if (mode === 'trying') {
     // waiting for the recorded tone to start
   } else if (!player) {
     const ctx = getAudio();
     if (ctx) { player = playTone(ctx, tone, v); if (backupOn) { stopBackup(); backupOn = false; } }
     else if (!backupOn && Date.now() - started > 1500) {
-      // Web Audio is still paused: fall back to the pre-approved chime, and ask for a tap if even that fails.
+      // Web Audio is still paused: fall back to the pre-approved chime (keeps retrying every second).
       backupOn = true;
-      playBackup().then((ok) => { const m = $('ar-mute'); if (!ok) { backupOn = false; if (m) m.hidden = false; } });
+      playBackup().then((ok) => { if (!ok) backupOn = false; });
     }
   } else player.setVolume(v);
-  const m = $('ar-mute'); if (m && player) m.hidden = true;
-  if (status && mode !== 'element') status.textContent = player ? '🔊 Sound on (live)' : backupOn ? '🔊 Sound on (backup chime)' : mode === 'trying' ? 'Sound: starting…' : '🔇 Sound blocked — tap the screen';
+  if (status && mode !== 'element') status.textContent = player ? '🔊 Sound on (live)' : backupOn ? '🔊 Sound on (backup chime)' : mode === 'trying' ? 'Sound: starting…' : '🔇 Sound blocked by the device — still trying';
   if (Date.now() - started > GIVE_UP_MS) { const f = cur.onTimeout; finish(f); }
 }
 

@@ -1411,8 +1411,6 @@ svg.world .pin { fill: #fbbf24; stroke: #000; stroke-width: .4; }
 .map-item-main { flex: 1; min-width: 0; }
 .map-item-name { font-weight: 700; font-size: 14px; }
 .map-x { position: static; flex: none; }
-.ar-mute { position: absolute; top: calc(var(--safe-top) + 16px); left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 99px; background: #fff; color: #111; font-weight: 800; font-size: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.35); animation: arpulse2 1.2s ease-in-out infinite; white-space: nowrap; }
-@keyframes arpulse2 { 50% { transform: translateX(-50%) scale(1.05); } }
 .once-hint { margin: 2px 0 0; }
 .field .seg { margin: 4px 0 8px; }
 .ar-sound { position: absolute; bottom: calc(var(--safe-bottom) + 14px); left: 0; right: 0; text-align: center; font-size: 13px; opacity: .65; }
