@@ -5,6 +5,7 @@ import { el, pad, toast } from './ui.js';
 import { unlockAudio } from './countdown.js';
 import { ringAlert, toneField } from './ring.js';
 import { newMed, tidy, checkMeds, viewMeds } from './meds.js';
+import { primeSpeech } from './wakewords.js';
 
 const LATE_MS = 10 * 60 * 1000;     // timers that ended while the app was closed still ring for 10 min
 const $ = (id) => document.getElementById(id);
@@ -16,7 +17,7 @@ function T() {
   t.countdown ||= { dur: 5 * 60000, sound: 'medium' };
   t.stopwatch ||= { base: 0, since: null };
   t.laps ||= { base: 0, since: null, laps: [] };
-  t.egg ||= { type: 'soft', size: 'L', cold: true, sound: 'soft' };
+  t.egg ||= { type: 'soft', size: 'L', cold: true };
   t.meds ||= [];
   if (!t.meds.length) t.meds.push(newMed());
   t.meds.forEach(tidy);
@@ -58,10 +59,10 @@ export function check() {
   }
   const e = all.egg;
   if (e.endAt && t >= e.endAt) {
-    const late = t - e.endAt, egg = EGGS.find((x) => x.id === e.type) || EGGS[1];
-    e.endAt = null; save(); changed();
-    if (late < LATE_MS) ringAlert({ icon: '🥚', title: `${egg.name} eggs are ready`, label: egg.after, sound: e.sound,
-      buttons: [{ label: 'Done', kind: 'primary' }] });
+    const late = t - e.endAt, egg = eggOf(e);
+    e.endAt = null; save(); keepAwake(false); changed();
+    if (late < LATE_MS) ringAlert({ icon: '🥚', title: egg.ready, label: egg.after, sound: 'chime', say: `${egg.ready}.`,
+      buttons: [{ label: 'Stop', kind: 'primary' }] });
   }
   checkMeds(all.meds, changed);
 }
@@ -156,57 +157,115 @@ function viewLaps(box, rerender) {
 /* ---------- Egg timer ---------- */
 // Times are for eggs lowered straight from the fridge into a pan of boiling water.
 const EGGS = [
-  { id: 'dippy', name: 'Dippy', desc: 'Very runny yolk — for toast soldiers', s: 300, yolk: '#ffb000', runny: 2, after: 'Into egg cups and serve straight away.' },
-  { id: 'soft', name: 'Soft boiled', desc: 'Runny yolk, white just set', s: 360, yolk: '#ffa200', runny: 1, after: 'Serve straight away so they don’t keep cooking.' },
-  { id: 'jammy', name: 'Jammy', desc: 'Sticky, fudgy yolk — ramen and salads', s: 420, yolk: '#f39200', jam: true, after: 'Plunge into iced water for 2 minutes, then peel.' },
-  { id: 'medium', name: 'Medium', desc: 'Yolk set with a soft centre', s: 480, yolk: '#f7b23b', after: 'Cool in cold water for a minute, then peel.' },
-  { id: 'hard', name: 'Hard boiled', desc: 'Firm yolk all the way through', s: 600, yolk: '#f8d24f', after: 'Cool in cold water so the yolk stays bright yellow.' },
-  { id: 'firm', name: 'Extra firm', desc: 'For egg mayo, devilled eggs, picnics', s: 720, yolk: '#fadf86', after: 'Cool in cold water, then peel.' },
-  { id: 'poached', name: 'Poached', desc: 'Cracked into gently simmering water', s: 180, yolk: '#ffa800', poached: true, fixed: true, after: 'Lift out with a slotted spoon and drain.' },
-  { id: 'quail', name: 'Quail eggs', desc: 'Tiny eggs, soft and runny', s: 150, yolk: '#ffa000', small: true, fixed: true, after: 'Cool in cold water, then peel.' },
+  { id: 'dippy', name: 'Dippy', ready: 'Your dippy egg is ready', desc: 'Very runny yolk — for toast soldiers', s: 300, yolk: '#ffa600', runny: 2, after: 'Into egg cups and serve straight away.' },
+  { id: 'soft', name: 'Soft boiled', ready: 'Your soft-boiled egg is ready', desc: 'Runny yolk, white just set', s: 360, yolk: '#ff9d00', runny: 1, after: 'Serve straight away so it doesn’t keep cooking.' },
+  { id: 'jammy', name: 'Jammy', ready: 'Your jammy egg is ready', desc: 'Sticky, fudgy yolk — ramen and salads', s: 420, yolk: '#f7a21b', centre: '#e06f00', cr: 0.6, gloss: true, after: 'Plunge into iced water for 2 minutes, then peel.' },
+  { id: 'medium', name: 'Medium', ready: 'Your medium-boiled egg is ready', desc: 'Yolk set with a soft centre', s: 480, yolk: '#f8c247', centre: '#f39a12', cr: 0.38, after: 'Cool in cold water for a minute, then peel.' },
+  { id: 'hard', name: 'Hard boiled', ready: 'Your hard-boiled egg is ready', desc: 'Firm yolk all the way through', s: 600, yolk: '#f7d34f', crumbs: '#e3b92e', after: 'Cool in cold water so the yolk stays bright yellow.' },
+  { id: 'firm', name: 'Extra firm', ready: 'Your extra-firm egg is ready', desc: 'For egg mayo, devilled eggs, picnics', s: 720, yolk: '#f4e08f', crumbs: '#dcc56a', ring: '#a9ab7f', after: 'Cool in cold water, then peel.' },
+  { id: 'poached', name: 'Poached', ready: 'Your poached egg is ready', desc: 'Cracked into gently simmering water', s: 180, yolk: '#ffa800', poached: true, fixed: true, after: 'Lift out with a slotted spoon and drain.' },
+  { id: 'quail', name: 'Quail eggs', ready: 'Your quail eggs are ready', desc: 'Tiny eggs, soft and runny', s: 150, yolk: '#ff9800', runny: 1, small: true, fixed: true, after: 'Cool in cold water, then peel.' },
 ];
 const SIZES = [['S', 'Small', -60], ['M', 'Medium', -30], ['L', 'Large', 0], ['XL', 'Very large', 60]];
+const eggOf = (e) => EGGS.find((x) => x.id === e.type) || EGGS[1];
 
-function eggSvg(g) {
-  const ns = 'http://www.w3.org/2000/svg', sc = g.small ? 0.72 : 1;
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 60 70'); svg.setAttribute('class', 'egg-svg'); svg.setAttribute('aria-hidden', 'true');
-  const add = (tag, attrs) => { const n = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); svg.append(n); };
-  if (g.poached) add('path', { d: 'M7 41c0-13 9-22 22-22 14 0 25 7 25 20 0 12-10 21-24 21C17 60 7 53 7 41z', fill: '#f7f3ea' });
-  else add('ellipse', { cx: 30, cy: 37, rx: 21 * sc, ry: 27 * sc, fill: '#f7f3ea' });
-  const r = 11 * sc, cy = g.poached ? 39 : 40;
-  if (g.runny) add('path', { d: `M${30 - r * 0.7} ${cy + 3}q${r * 0.7} ${9 + g.runny * 6} ${r * 1.4} 0z`, fill: g.yolk });
-  add('circle', { cx: 30, cy, r, fill: g.yolk });
-  if (g.jam) add('circle', { cx: 30, cy, r: r * 0.55, fill: '#e07b00' });
-  if (g.runny || g.poached) add('ellipse', { cx: 30 - r * 0.32, cy: cy - r * 0.36, rx: r * 0.28, ry: r * 0.18, fill: 'rgba(255,255,255,.6)' });
+/* Each egg is drawn cut in half on a 100 × 120 canvas, so the yolk shows how it will turn out. */
+const NS = 'http://www.w3.org/2000/svg';
+const SHELL = 'M50 5C25 5 9 43 9 72c0 26 18 44 41 44s41-18 41-44C91 43 75 5 50 5z';
+const BLOB = 'M12 70c-6-15 6-30 22-33 9-12 30-14 41-3 15 1 22 15 17 28 6 13-4 28-20 29-10 9-33 9-43-1C18 90 7 82 12 70z';
+const svgNode = (tag, attrs) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
+const outlineOf = (g) => (g.poached ? BLOB : SHELL);
+const scaleOf = (g) => (g.small ? 'translate(50 62) scale(.74) translate(-50 -62)' : '');
+
+function eggParts(g) {
+  const out = [], add = (tag, attrs) => out.push(svgNode(tag, attrs));
+  const cx = 50, cy = g.poached ? 66 : 74, r = g.poached ? 21 : 23;
+  if (g.poached) add('path', { d: BLOB, fill: '#f8f4ea', stroke: '#e2d8c3', 'stroke-width': 2 });
+  else add('path', { d: SHELL, fill: '#f8f4ea', stroke: g.small ? '#b48f62' : '#d6c6a6', 'stroke-width': g.small ? 4 : 3 });
+  if (g.small) [[30, 22], [64, 18], [83, 48], [16, 60], [88, 82], [22, 98], [72, 108], [48, 7]].forEach(([x, y]) => add('circle', { cx: x, cy: y, r: 2.6, fill: '#5b4127' }));
+  if (g.runny) add('path', { d: `M${cx - r * 0.72} ${cy + r * 0.55}Q${cx} ${cy + r + 6 + g.runny * 9} ${cx + r * 0.72} ${cy + r * 0.55}z`, fill: g.yolk });
+  if (g.poached) add('ellipse', { cx, cy: cy + r * 0.85, rx: r * 0.9, ry: r * 0.22, fill: 'rgba(120,90,40,.18)' });
+  add('circle', { cx, cy, r, fill: g.yolk });
+  if (g.centre) add('circle', { cx, cy, r: r * g.cr, fill: g.centre });
+  if (g.ring) add('circle', { cx, cy, r: r - 1.4, fill: 'none', stroke: g.ring, 'stroke-width': 2.4, opacity: 0.8 });
+  if (g.crumbs) [[-9, -8, 2.2], [7, -11, 1.8], [11, 4, 2.4], [-4, 9, 2], [-13, 3, 1.6], [3, -2, 1.4], [14, -6, 1.3]].forEach(([dx, dy, rr]) => add('circle', { cx: cx + dx, cy: cy + dy, r: rr, fill: g.crumbs }));
+  if (g.runny || g.poached || g.gloss) {
+    const gr = g.gloss ? r * g.cr : r;
+    add('ellipse', { cx: cx - gr * 0.34, cy: cy - gr * 0.4, rx: gr * 0.3, ry: gr * 0.18, fill: 'rgba(255,255,255,.65)', transform: `rotate(-25 ${cx - gr * 0.34} ${cy - gr * 0.4})` });
+  }
+  return out;
+}
+
+function eggSvg(g, cls = 'egg-svg') {
+  const svg = svgNode('svg', { viewBox: '0 0 100 120', class: cls, 'aria-hidden': 'true' });
+  const grp = svgNode('g', { transform: scaleOf(g) });
+  grp.append(...eggParts(g));
+  svg.append(grp);
+  return svg;
+}
+
+/* The big egg on the running screen: an empty outline that fills from the bottom up. */
+let eggUid = 0;
+function fillingEgg(g) {
+  const id = `egg-rise-${++eggUid}`;
+  const svg = svgNode('svg', { viewBox: '0 0 100 120', class: 'egg-big', 'aria-hidden': 'true' });
+  const wave = svgNode('path', { d: 'M-100 0q12.5-4 25 0' + 't25 0'.repeat(15) + 'V140H-100z' });
+  const clip = svgNode('clipPath', { id }); clip.append(wave);
+  const defs = svgNode('defs', {}); defs.append(clip);
+  const empty = svgNode('g', { transform: scaleOf(g) });
+  empty.append(svgNode('path', { d: outlineOf(g), fill: 'rgba(255,255,255,.04)', stroke: 'rgba(255,255,255,.28)', 'stroke-width': 1.6, 'stroke-dasharray': '4 4' }));
+  const full = svgNode('g', { transform: scaleOf(g), 'clip-path': `url(#${id})` });
+  full.append(...eggParts(g));
+  svg.append(defs, empty, full);
+  svg.setFill = (p) => {   // p: 0 = empty … 1 = full
+    const y = 122 - p * 124, x = -((Date.now() / 40) % 50);
+    wave.setAttribute('transform', `translate(${x} ${y})`);
+  };
   return svg;
 }
 
 function eggSecs(e) {
-  const g = EGGS.find((x) => x.id === e.type) || EGGS[1];
+  const g = eggOf(e);
   if (g.fixed) return g.s;
   return g.s + (SIZES.find((s) => s[0] === e.size)?.[2] || 0) - (e.cold ? 0 : 30);
 }
 
+let eggWake = null;
+function keepAwake(on) {
+  if (on && 'wakeLock' in navigator && (!eggWake || eggWake.released)) navigator.wakeLock.request('screen').then((w) => { eggWake = w; }).catch(() => {});
+  if (!on && eggWake) { eggWake.release().catch(() => {}); eggWake = null; }
+}
+
 function viewEggs(box, rerender) {
   const e = T().egg;
-  const g = EGGS.find((x) => x.id === e.type) || EGGS[1];
+  const g = eggOf(e);
   if (e.endAt) {
-    const disp = el('div', { class: 'big-time' }, clock(e.endAt - Date.now()));
-    const bar = el('i', {});
+    const disp = el('div', { class: 'egg-left' }, clock(e.endAt - Date.now()));
+    const pct = el('div', { class: 'egg-pct' }, '');
+    const big = fillingEgg(g);
+    keepAwake(true);
     box.append(el('div', { class: 'card timer-card egg-run' },
-      eggSvg(g),
       el('div', { class: 'egg-run-name' }, g.name),
-      disp, el('div', { class: 'tbar' }, bar),
+      el('div', { class: 'egg-stage' + (g.small ? ' small' : '') + (g.poached ? ' poached' : '') }, big,
+        el('div', { class: 'egg-readout' }, disp, pct)),
       el('div', { class: 'muted small center' }, `Ready at ${hhmm(e.endAt)}`),
-      el('button', { type: 'button', class: 'btn wide big-btn', onclick: () => { e.endAt = null; save(); rerender(); } }, 'Cancel')),
-    toneField(e.sound, (v) => { e.sound = v; save(); }, 'Sound when they’re ready'));
-    return () => { const l = e.endAt - Date.now(); disp.textContent = clock(l); bar.style.width = `${Math.max(0, Math.min(100, 100 * l / e.dur))}%`; };
+      el('button', { type: 'button', class: 'btn wide big-btn', onclick: () => { e.endAt = null; save(); keepAwake(false); rerender(); } }, 'Cancel')),
+    el('p', { class: 'muted small center' }, `When it’s done you’ll hear a chime and “${g.ready}”.`));
+    const upd = () => {
+      if (!e.endAt) return;
+      const l = e.endAt - Date.now(), p = Math.max(0, Math.min(1, 1 - l / e.dur));
+      disp.textContent = clock(l);
+      pct.textContent = `${Math.floor(p * 100)}% cooked`;
+      big.setFill(p);
+    };
+    upd();
+    return upd;
   }
+  keepAwake(false);
   const total = el('div', { class: 'egg-total' });
   const upd = () => { total.textContent = `${g.name}: ${clock(eggSecs(e) * 1000)}`; };
   box.append(
-    el('div', { class: 'egg-grid' }, EGGS.map((x) => el('button', { type: 'button', class: 'egg-card' + (x.id === e.type ? ' on' : ''), onclick: () => { e.type = x.id; save(); rerender(); } },
+    el('div', { class: 'egg-grid' }, EGGS.map((x) => el('button', { type: 'button', class: 'egg-card' + (x.id === e.type ? ' on' : ''), 'aria-pressed': String(x.id === e.type), onclick: () => { e.type = x.id; save(); rerender(); } },
       eggSvg(x), el('div', { class: 'egg-name' }, x.name), el('div', { class: 'egg-desc' }, x.desc), el('div', { class: 'egg-mins' }, clock(x.s * 1000))))),
     el('div', { class: 'card' },
       g.fixed ? null : [
@@ -215,8 +274,8 @@ function viewEggs(box, rerender) {
       ],
       total,
       el('p', { class: 'muted small' }, g.poached ? 'Bring a pan of water to a gentle simmer, slip the cracked egg in, then tap Start.' : 'Bring a pan of water to a rolling boil, lower the eggs in gently with a spoon, then tap Start.'),
-      el('button', { type: 'button', class: 'btn primary wide big-btn', onclick: () => { unlockAudio(); e.dur = eggSecs(e) * 1000; e.endAt = Date.now() + e.dur; save(); rerender(); } }, `Start — ${g.name}`),
-      toneField(e.sound, (v) => { e.sound = v; save(); }, 'Sound when they’re ready')));
+      el('button', { type: 'button', class: 'btn primary wide big-btn', onclick: () => { unlockAudio(); primeSpeech(); e.dur = eggSecs(e) * 1000; e.endAt = Date.now() + e.dur; save(); rerender(); } }, `Start — ${g.name}`),
+      el('p', { class: 'muted small center' }, `When it’s done you’ll hear a chime and “${g.ready}”.`)));
   upd();
   return null;
 }
