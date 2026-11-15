@@ -629,3 +629,5 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 .zone-line { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; color: var(--muted); }
 .zone-line b { color: var(--green); }
 .zone-tick { color: var(--green); font-weight: 900; }
+.tg-mic-row { margin-top: 8px; }
+.tg-mic-row[hidden] { display: none; }

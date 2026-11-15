@@ -96,16 +96,57 @@ export function analyse(ts, bph) {
 }
 
 /* ---------- Audio ---------- */
+function setSession(type) {
+  try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (e) { /* older iOS */ }
+}
+
+const MIC_ERRORS = {
+  NotAllowedError: 'Microphone permission was declined. On iPhone: Settings → Apps → Safari → Microphone → Ask or Allow, then reopen the app and try again.',
+  SecurityError: 'Microphone permission was declined. On iPhone: Settings → Apps → Safari → Microphone → Ask or Allow, then reopen the app and try again.',
+  NotFoundError: 'No microphone was found.',
+  NotReadableError: 'The microphone is busy — close any call, voice memo or video app and try again.',
+  AbortError: 'The microphone is busy — close any call, voice memo or video app and try again.',
+};
+
+async function openMic(deviceId) {
+  // Try the cleanest signal first, then progressively simpler requests.
+  const dev = deviceId ? { deviceId: { exact: deviceId } } : {};
+  const tries = [
+    { audio: { ...dev, echoCancellation: false, noiseSuppression: false, autoGainControl: false } },
+    { audio: { ...dev } },
+    { audio: true },
+  ];
+  let last = null;
+  for (const c of tries) {
+    try { return await navigator.mediaDevices.getUserMedia(c); } catch (e) { last = e; if (e.name === 'NotAllowedError' || e.name === 'SecurityError') break; }
+  }
+  throw last || new Error('Microphone unavailable');
+}
+
 async function start() {
   if (running) return;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-  } catch (e) {
-    setStatus(e.name === 'NotAllowedError' ? 'Microphone permission was declined. Allow it in Settings → Safari (or the app) → Microphone, then try again.' : 'Could not use the microphone.', 'bad');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setStatus('This browser can’t use the microphone here. Try opening the app link in Safari.', 'bad');
     return;
   }
-  ctx = new (window.AudioContext || window.webkitAudioContext)();
-  await ctx.audioWorklet.addModule('js/tick-worklet.js');
+  // The clock’s beeps put the iPhone in “playback only” mode, which blocks the microphone.
+  setSession('play-and-record');
+  try {
+    stream = await openMic(store.get().tgDevice || '');
+  } catch (e) {
+    setSession('playback');
+    setStatus((MIC_ERRORS[e.name] || 'Could not use the microphone.') + (MIC_ERRORS[e.name] ? '' : ` (${e.name || 'error'}${e.message ? ': ' + e.message : ''})`), 'bad');
+    return;
+  }
+  listDevices();
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await ctx.audioWorklet.addModule('js/tick-worklet.js');
+  } catch (e) {
+    stream.getTracks().forEach((t) => t.stop()); stream = null; setSession('playback');
+    setStatus(`This phone’s browser can’t process audio this way (${e.name || 'error'}). Please update iOS.`, 'bad');
+    return;
+  }
   const src = ctx.createMediaStreamSource(stream);
   const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500; hp.Q.value = 0.7;
   node = new AudioWorkletNode(ctx, 'tick-tap');
@@ -130,12 +171,27 @@ function stop() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
   if (ctx) ctx.close().catch(() => {});
   ctx = stream = node = null;
+  setSession('playback');
   drawControls();
   if (lastResult) setStatus('Stopped. Save the result to a watch below, or start again.', '');
   else setStatus('Stopped.', '');
 }
 
 /* ---------- UI ---------- */
+// Lists microphones (wired earphones, Bluetooth headsets…) once permission has been given.
+async function listDevices() {
+  const sel = $('tg-mic');
+  if (!sel || !navigator.mediaDevices?.enumerateDevices) return;
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    const cur = store.get().tgDevice || '';
+    sel.innerHTML = '';
+    sel.append(el('option', { value: '' }, 'Microphone: phone’s own'));
+    devs.forEach((d, i) => { if (d.deviceId && d.deviceId !== 'default') sel.append(el('option', { value: d.deviceId, selected: d.deviceId === cur }, d.label || `Microphone ${i + 1}`)); });
+    sel.closest('.tg-mic-row').hidden = sel.options.length < 2;
+  } catch (e) { /* ignore */ }
+}
+
 function setStatus(msg, cls) { const s = $('tg-status'); if (s) { s.textContent = msg; s.className = 'tg-status ' + (cls || ''); } }
 
 function update() {
@@ -244,6 +300,7 @@ function render() {
     el('div', { class: 'notice warn' }, el('b', {}, 'Experimental. '), 'A phone microphone is far less sensitive than a real timegrapher, so treat the numbers as a rough guide. Amplitude can’t be measured this way.'),
     el('div', { class: 'card tg-card' },
       el('div', { class: 'row2' }, watchSel, bphSel),
+      el('div', { class: 'tg-mic-row', hidden: true }, el('select', { id: 'tg-mic', class: 'input', 'aria-label': 'Microphone', onchange: (e) => { store.get().tgDevice = e.target.value; store.save(); if (running) { stop(); start(); } } })),
       el('div', { class: 'tg-readout' },
         el('div', {}, el('div', { class: 'stat-label' }, 'Rate'), el('div', { id: 'tg-rate', class: 'tg-big' }, '—')),
         el('div', {}, el('div', { class: 'stat-label' }, 'Beat error'), el('div', { id: 'tg-be', class: 'tg-mid' }, '—'))),
@@ -260,11 +317,14 @@ function render() {
         el('li', {}, 'Lay the phone on a soft surface and press the watch’s case back against the bottom edge of the phone (where the microphone is).'),
         el('li', {}, 'Wind the watch fully first; keep it still for 20–30 seconds.'),
         el('li', {}, 'Set the beat rate if you know it (e.g. 28,800 bph for most modern Swiss movements, 21,600 for Seiko NH35/4R).'),
+        el('li', {}, 'Better microphone: wired earphones with a built-in microphone (USB-C or Lightning) work well. Hold the little microphone against the case back. Once connected, choose it in the Microphone box that appears.'),
+        el('li', {}, 'Bluetooth earphones (e.g. AirPods) also work, but their microphones filter out much of the tick, so results are usually weaker.'),
         el('li', {}, 'Test dial up and crown down too — the same positions as the accuracy tracker.'))),
     el('div', { id: 'tg-history' }));
   drawControls();
   renderHistory();
   drawTrace(lastResult);
+  listDevices();
 }
 
 function tgDetail(w) {
