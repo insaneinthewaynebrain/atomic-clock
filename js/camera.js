@@ -410,7 +410,10 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
               const g = c.getContext('2d');
               if (!cutout) { g.fillStyle = '#000'; g.fillRect(0, 0, ow, oh); }
               const rho = (ow / 2) / 1.05;                                  // bezel fills the face with a 5% margin
-              g.translate(ow / 2, oh / 2); g.rotate(oval.angle); g.scale(rho / (oval.a * 2), rho / (oval.b * 2)); g.rotate(-oval.angle);
+              // Nearly round (≥ 90%): straighten it gently. More oval than that: don't stretch (a mis-fitted oval
+              // would distort the face) — just centre a circle on the bezel, big enough to hold all of it.
+              const sx = oval.b / oval.a >= 0.9 ? rho / (oval.a * 2) : rho / (oval.a * 2), sy = oval.b / oval.a >= 0.9 ? rho / (oval.b * 2) : rho / (oval.a * 2);
+              g.translate(ow / 2, oh / 2); g.rotate(oval.angle); g.scale(sx, sy); g.rotate(-oval.angle);
               g.translate(-oval.cx * 2, -oval.cy * 2);
               g.drawImage(shot, 0, 0);
               face = c;

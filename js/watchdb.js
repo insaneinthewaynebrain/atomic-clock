@@ -123,6 +123,10 @@ export function guessBrands(words) {
       else if (w.length >= 4 && t.includes(w)) sc = 0.42 + 0.35 * ratio;
       if (!sc) continue;
       if (w !== t) {
+        // Dial lettering is capitals: a mostly-lowercase fragment ("Just," from some printed text) is noise, not part
+        // of a brand name. Only whole-name matches count for lowercase words.
+        const letters = String(raw).replace(/[^A-Za-z]/g, '');
+        if ((letters.match(/[a-z]/g) || []).length > letters.length / 2) continue;
         // A 3-letter scrap is weak evidence: it may only point to a well-known brand ("IKO" → Seiko), never to a
         // rarer one it happens to end (e.g. "ITT" → Paul Hewitt).
         if (w.length === 3 && !COMMON.has(brand)) continue;

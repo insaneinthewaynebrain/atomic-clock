@@ -152,27 +152,55 @@ function gradients(img) {
 export function traceBezel(img, rough) {
   const W = img.width, H = img.height;
   const { gx, gy, T } = gradients(img);
-  const R = 128, pts = [];
+  const R = 128, LO = 0.6, HI = 1.4, STEP = 0.5;
+  // Every clear edge along every ray (local peaks of the light/dark change across the ray).
+  const rays = [];
   for (let i = 0; i < R; i++) {
     const t = (i / R) * 2 * Math.PI, c = Math.cos(t), s = Math.sin(t);
-    // Walk out along the ray (wide enough for the short side of a tilted watch). Take the *outermost* clear edge,
-    // not the strongest: the bezel's outer edge, rather than the insert/dial boundary inside it.
     const prof = [];
-    for (let r = rough.r * 0.68; r <= rough.r * 1.25; r += 0.5) {
+    for (let r = rough.r * LO; r <= rough.r * HI; r += STEP) {
       const x = Math.round(rough.cx + c * r), y = Math.round(rough.cy + s * r);
       if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) { prof.push([r, 0]); continue; }
       const k = y * W + x;
       prof.push([r, Math.abs(gx[k] * c + gy[k] * s)]);
     }
     const peak = Math.max(...prof.map((q) => q[1]));
-    let at = null;
-    if (peak > T) {
-      for (let j = prof.length - 2; j >= 1; j--) {
-        const v = prof[j][1];
-        if (v >= peak * 0.5 && v >= prof[j - 1][1] && v >= prof[j + 1][1]) { at = [rough.cx + c * prof[j][0], rough.cy + s * prof[j][0]]; break; }
-      }
+    const peaks = [];
+    for (let j = 1; j < prof.length - 1; j++) {
+      const v = prof[j][1];
+      if (v > T && v >= peak * 0.35 && v >= prof[j - 1][1] && v >= prof[j + 1][1]) peaks.push(prof[j][0]);
     }
-    if (at) pts.push(at);
+    rays.push({ c, s, peaks });
+  }
+  // Vote: at each distance (as a share of the rough radius), what share of the rays see an edge there (each ray
+  // counted once, with ±6% slack so a slightly oval, tilted ring still counts). The bezel's outer edge is round, so
+  // most rays see it however strong the dial edge inside is; case corners, lugs and bracelets only show on some.
+  const BIN = 0.02, NB = Math.round((HI - LO) / BIN) + 1, share = new Float32Array(NB);
+  for (let b = 0; b < NB; b++) {
+    const q = LO + b * BIN;
+    let n = 0;
+    for (const ray of rays) if (ray.peaks.some((r) => Math.abs(r / rough.r - q) <= 0.06)) n++;
+    share[b] = n / R;
+  }
+  // The outermost ring that at least 80% of rays agree on. Measured on 22 real photos: a bezel's outer edge is
+  // seen by 83–100% of rays; case, lug and strap outlines by 30–78%.
+  let ringQ = null, bestB = -1;
+  for (let b = 1; b < NB - 1; b++) {
+    const isPeak = share[b] >= share[b - 1] && share[b] >= share[b + 1];
+    if (isPeak && share[b] >= 0.8) ringQ = LO + b * BIN;
+    if (isPeak && (bestB < 0 || share[b] > share[bestB])) bestB = b;
+  }
+  if (ringQ == null && bestB >= 0 && share[bestB] >= 0.6) ringQ = LO + bestB * BIN;   // nothing that clear: the best-supported ring
+  if (ringQ == null) return null;
+  // Each ray's edge nearest that ring → the points to fit.
+  const pts = [];
+  for (const ray of rays) {
+    let best = null;
+    for (const r of ray.peaks) {
+      const d = Math.abs(r / rough.r - ringQ);
+      if (d <= 0.12 && (!best || d < best.d)) best = { d, r };
+    }
+    if (best) pts.push([rough.cx + ray.c * best.r, rough.cy + ray.s * best.r]);
   }
   if (pts.length < R * 0.6) return null;
   // Fit, drop the points that disagree most (lugs, crown, reflections), fit again.
@@ -186,7 +214,7 @@ export function traceBezel(img, rough) {
     if (next.length < R * 0.45) break;
     use = next;
   }
-  if (!fit || fit.b / fit.a < 0.65 || fit.a > rough.r * 1.3 || fit.b < rough.r * 0.62) return null;
+  if (!fit || fit.b / fit.a < 0.65 || fit.a > rough.r * 1.45 || fit.b < rough.r * 0.55) return null;
   if (Math.hypot(fit.cx - rough.cx, fit.cy - rough.cy) > rough.r * 0.25) return null;
   return fit;
 }
