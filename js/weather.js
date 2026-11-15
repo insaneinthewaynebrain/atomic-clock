@@ -46,7 +46,7 @@ let message = '';
 function buildUrl(lat, lon, models) {
   const q = new URLSearchParams({
     latitude: lat.toFixed(4), longitude: lon.toFixed(4),
-    current: CURRENT.join(','), hourly: HOURLY.join(','), daily: DAILY.join(','),
+    current: CURRENT.join(','), hourly: [...HOURLY, ...CURRENT].join(','), daily: DAILY.join(','),
     wind_speed_unit: 'mph', temperature_unit: 'celsius', timezone: 'auto', forecast_days: '4',
   });
   if (models) q.set('models', models.join(','));
@@ -79,14 +79,17 @@ export function interpret(raw, models) {
   const ht = raw.hourly?.time || [];
   if (c.time) hourIdx = ht.indexOf(c.time.slice(0, 13) + ':00');
   if (hourIdx < 0) hourIdx = 0;
-  const isDay = pick(c, 'is_day');
+  // With several models the "current" block isn't labelled by model, so read this hour from
+  // each model's hourly data (Met Office first) and only fall back to the current block.
+  const now = (name) => { const v = pick(raw.hourly, name, hourIdx); return v != null ? v : pick(c, name); };
+  const isDay = now('is_day');
   const current = {
     time: c.time,
-    temp: pick(c, 'temperature_2m'),
-    code: pick(c, 'weather_code'),
+    temp: now('temperature_2m'),
+    code: now('weather_code'),
     isDay: isDay == null ? 1 : isDay,
-    wind: pick(c, 'wind_speed_10m'),
-    gust: pick(c, 'wind_gusts_10m'),
+    wind: now('wind_speed_10m'),
+    gust: now('wind_gusts_10m'),
     rain: pick(raw.hourly, 'precipitation_probability', hourIdx),
   };
   const days = (raw.daily?.time || []).slice(0, 4).map((date, i) => ({

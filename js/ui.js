@@ -178,7 +178,8 @@ export function placeLabel(p) {
   return [p.admin1, p.country].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i && x !== p.name).join(', ');
 }
 
-export function placeSearchModal({ title, onPick, extraActions = [] }) {
+export function placeSearchModal({ title, onPick, extraActions = [], onCancel }) {
+  let picked = false;
   const input = el('input', {
     type: 'search', class: 'input', placeholder: 'Type a town or city, e.g. Paris', autocomplete: 'off',
     autocapitalize: 'words', enterkeyhint: 'search', spellcheck: false,
@@ -199,7 +200,7 @@ export function placeSearchModal({ title, onPick, extraActions = [] }) {
       for (const p of res) {
         list.append(el('button', {
           type: 'button', class: 'result',
-          onclick: () => { m.close(); onPick(p); },
+          onclick: () => { picked = true; m.close(); onPick(p); },
         },
         el('div', { class: 'r-name' }, p.name),
         el('div', { class: 'r-sub' }, [placeLabel(p), p.timezone].filter(Boolean).join(' · '))));
@@ -214,6 +215,7 @@ export function placeSearchModal({ title, onPick, extraActions = [] }) {
     title, className: 'tall',
     content: [input, status, list],
     actions: [...extraActions, { label: 'Cancel' }],
+    onClose: () => { if (!picked && onCancel) onCancel(); },
   });
   setTimeout(() => input.focus(), 60);
   return m;

@@ -31,7 +31,7 @@ function merge(def, obj) {
   if (!Array.isArray(out.watches)) out.watches = [];
   if (!Array.isArray(out.worldSlots)) out.worldSlots = def.worldSlots;
   while (out.worldSlots.length < 5) out.worldSlots.push(null);
-  out.worldSlots = out.worldSlots.slice(0, 5);
+  out.worldSlots = out.worldSlots.slice(0, 20);   // 5 to start, up to 20
   if (!Array.isArray(out.wear)) out.wear = [];
   if (!Array.isArray(out.tools.hidden)) out.tools.hidden = [];
   // v1 → v2: every existing watch becomes an owned watch in the collection.

@@ -631,3 +631,10 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 .zone-tick { color: var(--green); font-weight: 900; }
 .tg-mic-row { margin-top: 8px; }
 .tg-mic-row[hidden] { display: none; }
+
+/* World clock: weather + GMT */
+.w-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.w-wx { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.w-gmt { color: var(--muted); }
+.add-zone { margin-top: 2px; border-style: dashed; color: var(--accent); }
+.list .add-zone { grid-column: 1 / -1; }
