@@ -1,4 +1,4 @@
-// App shell: tabs, settings (thresholds, backup), service worker.
+// App shell: tabs, tools registry, service worker.
 import * as store from './store.js';
 import { startSync } from './time.js';
 import { initClock, showClock, hideClock } from './clock.js';
@@ -6,20 +6,34 @@ import { initTracker } from './tracker.js';
 import { initWorld, showWorld, hideWorld } from './world.js';
 import { initWeather, showWeather } from './weather.js';
 import { initCurrency, showCurrency } from './currency.js';
-import { el, openModal, confirmModal, toast } from './ui.js';
+import { initCollection, showCollection, hideCollection, bannerHooks } from './collection.js';
+import { initTools, showTools, hideTools, registerTool } from './tools.js';
+import { openTool } from './tools.js';
+import { backupBanner } from './backup.js';
+import { APP_NAME } from './config.js';
 
-export const APP_VERSION = '5';
+export const APP_VERSION = '6';
+
+// Feature modules that register their own tabs/tools.
+const EXTRA_MODULES = [];
 
 const TABS = {
   clock: { show: showClock, hide: hideClock },
-  world: { show: showWorld, hide: hideWorld },
-  weather: { show: showWeather },
-  currency: { show: showCurrency },
+  collection: { show: showCollection, hide: hideCollection },
+  tools: { show: showTools, hide: hideTools },
 };
 let currentTab = null;
 
-function switchTab(name) {
-  if (!TABS[name] || name === currentTab) return;
+/** Other stages add tabs here (e.g. Wrist). */
+export function registerTab(name, def) {
+  TABS[name] = def;
+  const b = document.querySelector(`.tabbtn[data-tab="${name}"]`);
+  if (b) b.hidden = false;
+}
+
+export function switchTab(name, sub) {
+  if (!TABS[name]) return;
+  if (name === currentTab) { if (sub && name === 'tools') openTool(sub); return; }
   if (currentTab && TABS[currentTab].hide) TABS[currentTab].hide();
   currentTab = name;
   document.querySelectorAll('.tab').forEach((s) => s.classList.toggle('active', s.dataset.tab === name));
@@ -28,82 +42,45 @@ function switchTab(name) {
     b.setAttribute('aria-current', b.dataset.tab === name ? 'page' : 'false');
   });
   window.scrollTo(0, 0);
-  TABS[name].show();
-  if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+  TABS[name].show(sub);
+  if (!location.hash.startsWith('#' + name)) history.replaceState(null, '', '#' + name);
 }
 
-/* ---------- Settings ---------- */
-
-function exportBackup() {
-  const json = JSON.stringify(store.exportData(), null, 2);
-  const d = new Date();
-  const fname = `atomic-clock-backup-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.json`;
-  const blob = new Blob([json], { type: 'application/json' });
-  const file = typeof File === 'function' ? new File([blob], fname, { type: 'application/json' }) : null;
-  if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
-    navigator.share({ files: [file], title: 'Atomic Clock backup' }).catch((e) => {
-      if (e.name !== 'AbortError') download(blob, fname);
-    });
-  } else {
-    download(blob, fname);
-  }
-}
-
-function download(blob, fname) {
-  const url = URL.createObjectURL(blob);
-  const a = el('a', { href: url, download: fname });
-  document.body.append(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
-  toast('Backup saved');
-}
-
-function importBackup() {
-  const input = el('input', { type: 'file', accept: 'application/json,.json,text/plain' });
-  input.addEventListener('change', async () => {
-    const f = input.files && input.files[0];
-    if (!f) return;
-    try {
-      const obj = JSON.parse(await f.text());
-      const ok = await confirmModal('Replace all data?', 'Importing replaces your watches, readings, places and settings with the ones in this backup.', 'Import', true);
-      if (!ok) return;
-      store.importData(obj);
-      toast('Backup imported');
-      setTimeout(() => location.reload(), 600);
-    } catch (e) {
-      openModal({ title: 'Import failed', content: el('p', {}, e.message || 'That file could not be read.'), actions: [{ label: 'OK', kind: 'primary' }] });
-    }
-  });
-  input.click();
-}
-
-function openSettings() {
-  openModal({
-    title: 'Backup & restore',
-    content: [
-      el('p', { class: 'muted small' }, 'Your watches, marks and places are stored only on this phone. Export a backup now and then and save it to Files or iCloud Drive.'),
-      el('div', { class: 'actions2' },
-        el('button', { type: 'button', class: 'btn', onclick: exportBackup }, '⬆︎ Export backup'),
-        el('button', { type: 'button', class: 'btn', onclick: importBackup }, '⬇︎ Import backup')),
-      el('p', { class: 'muted small' }, `App version ${APP_VERSION}`),
-    ],
-    actions: [{ label: 'Close' }],
-  });
+function registerBuiltInTools() {
+  registerTool({ id: 'world', title: 'World clock', icon: '🌍', desc: 'UTC, GMT and your places', panel: 'world', show: showWorld, hide: hideWorld, order: 40 });
+  registerTool({ id: 'weather', title: 'Weather', icon: '⛅', desc: 'Met Office forecast + wind', panel: 'weather', show: showWeather, order: 50 });
+  registerTool({ id: 'currency', title: 'Currency', icon: '💱', desc: 'Every currency, offline too', panel: 'currency', show: showCurrency, order: 60 });
 }
 
 /* ---------- Boot ---------- */
 
-function init() {
-  document.getElementById('backup-link').addEventListener('click', openSettings);
+async function init() {
+  document.title = APP_NAME;
+  document.querySelector('#tab-clock h1').textContent = APP_NAME;
+  document.getElementById('backup-link').addEventListener('click', () => switchTab('tools', 'settings'));
   document.querySelectorAll('.tabbtn').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+  bannerHooks.push(backupBanner);
+  store.on('backup', () => { if (currentTab === 'collection') showCollection(); });
+
   initClock();
   initTracker();
   initWorld();
   initWeather();
   initCurrency();
+  initCollection();
+  initTools(APP_VERSION);
+  registerBuiltInTools();
+
+  const api = { registerTab, registerTool, switchTab };
+  for (const m of EXTRA_MODULES) m.register(api);
+
   startSync();
-  const start = location.hash.slice(1);
-  switchTab(TABS[start] ? start : 'clock');
+  const route = () => {
+    const [tab, sub] = location.hash.slice(1).split('/');
+    switchTab(TABS[tab] ? tab : 'clock', sub);
+  };
+  route();
+  window.addEventListener('hashchange', route);
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     // When a new version takes over, reload once so the new files are used.

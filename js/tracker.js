@@ -1,62 +1,12 @@
 // Watch accuracy tracker (on the Clock tab).
 import * as store from './store.js';
 import { now, clock, isFresh } from './time.js';
-import { el, openModal, confirmModal, promptModal, toast, signed, fmtDuration, fmtDateTime, pad } from './ui.js';
+import { el, confirmModal, toast, signed, fmtDuration, fmtDateTime } from './ui.js';
+import { computeRun, watchStats, fmtOffset, fmtRate } from './accuracy.js';
+import { openWatchEditor, ownedWatches } from './collection.js';
 
 const DAY = 86400000;
 const root = () => document.getElementById('tracker');
-
-/* ---------- Maths ---------- */
-
-/** Derived numbers for one run (readings sorted by time). */
-export function computeRun(run) {
-  const rs = [...run.readings].sort((a, b) => a.t - b.t);
-  const readings = rs.map((r, i) => {
-    if (i === 0) return { ...r };
-    const p = rs[i - 1];
-    const elapsedMs = r.t - p.t;
-    const gain = r.offset - p.offset;
-    return { ...r, elapsedMs, gain, rate: elapsedMs > 0 ? gain / (elapsedMs / DAY) : null };
-  });
-  const first = rs[0], last = rs[rs.length - 1];
-  const spanDays = rs.length > 1 ? (last.t - first.t) / DAY : 0;
-  const totalGain = rs.length > 1 ? last.offset - first.offset : 0;
-  return { id: run.id, readings, spanDays, totalGain, avg: spanDays > 0 ? totalGain / spanDays : null };
-}
-
-/** Per-watch summary. Overall average is weighted by elapsed time across runs. */
-export function watchStats(w) {
-  const runs = w.runs.filter((r) => r.readings.length).map(computeRun)
-    .sort((a, b) => a.readings[0].t - b.readings[0].t);
-  const cur = runs[runs.length - 1] || null;
-  const latest = cur ? cur.readings[cur.readings.length - 1] : null;
-  let g = 0, d = 0;
-  for (const r of runs) if (r.spanDays > 0) { g += r.totalGain; d += r.spanDays; }
-  return {
-    runs, cur, latest,
-    lastRate: latest && latest.rate != null ? latest.rate : null,
-    lastElapsed: latest ? latest.elapsedMs : null,
-    runAvg: cur ? cur.avg : null,
-    overall: d > 0 ? g / d : null,
-    overallDays: d,
-  };
-}
-
-/* ---------- Formatting ---------- */
-
-export function fmtOffset(sec) {
-  const a = Math.abs(sec);
-  if (a < 0.5) return 'on time';
-  const m = Math.floor(a / 60), s = Math.round(a % 60);
-  const body = m ? `${m} min ${pad(s)} s` : `${s} s`;
-  return `${body} ${sec > 0 ? 'fast' : 'slow'}`;
-}
-
-export function fmtRate(r) {
-  if (r == null) return '—';
-  if (Math.abs(r) < 0.05) return '0.0 s/day';
-  return `${signed(r, 1)} s/day ${r > 0 ? 'fast' : 'slow'}`;
-}
 
 function rateClass(r) {
   if (r == null) return '';
@@ -72,7 +22,8 @@ function rateClass(r) {
 function data() { return store.get(); }
 function selected() {
   const d = data();
-  return d.watches.find((w) => w.id === d.selectedWatchId) || d.watches[0] || null;
+  const list = ownedWatches();
+  return list.find((w) => w.id === d.selectedWatchId) || list[0] || null;
 }
 
 function stamp() {
@@ -81,32 +32,14 @@ function stamp() {
 
 /* ---------- Actions ---------- */
 
-async function addWatch() {
-  const name = await promptModal('Add a watch', '', 'e.g. Rolex GMT', 'Add');
-  if (!name) return;
-  const w = { id: store.uid(), name, runs: [] };
-  data().watches.push(w);
-  data().selectedWatchId = w.id;
-  store.save();
-  render();
-}
-
-async function renameWatch(w) {
-  const name = await promptModal('Rename watch', w.name, '', 'Save');
-  if (!name) return;
-  w.name = name;
-  store.save();
-  render();
-}
+function addWatch() { openWatchEditor(null, { status: 'owned', select: true }); }
+function editWatch(w) { openWatchEditor(w); }
 
 async function deleteWatch(w) {
-  const ok = await confirmModal(`Delete “${w.name}”?`, 'This removes the watch and all its readings. It cannot be undone (unless you have a backup).', 'Delete', true);
+  const ok = await confirmModal(`Delete “${w.name}”?`, 'This removes the watch, its photos and all its marks. It cannot be undone (unless you have a backup).', 'Delete', true);
   if (!ok) return;
-  const d = data();
-  d.watches = d.watches.filter((x) => x.id !== w.id);
-  d.selectedWatchId = d.watches[0]?.id || null;
-  store.save();
-  render();
+  const { removeWatch } = await import('./collection.js');
+  await removeWatch(w);
 }
 
 // Mark: save the chosen +/- seconds against the exact synced time of the tap.
@@ -150,7 +83,8 @@ export function render() {
   const d = data();
   box.append(el('h2', { class: 'card-title' }, 'Watch accuracy'));
 
-  if (!d.watches.length) {
+  const owned = ownedWatches();
+  if (!owned.length) {
     box.append(
       el('p', { class: 'muted' }, 'Add a watch to track how many seconds a day it gains or loses.'),
       el('button', { type: 'button', class: 'btn primary wide', onclick: addWatch }, '+ Add a watch'));
@@ -164,10 +98,10 @@ export function render() {
   const sel = el('select', {
     class: 'input watch-select', 'aria-label': 'Watch',
     onchange: (e) => { d.selectedWatchId = e.target.value; store.save(); render(); },
-  }, d.watches.map((x) => el('option', { value: x.id, selected: x.id === w.id }, x.name)));
+  }, owned.map((x) => el('option', { value: x.id, selected: x.id === w.id }, x.name)));
   box.append(el('div', { class: 'watch-bar' }, sel,
     el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Add watch', title: 'Add watch', onclick: addWatch }, '+'),
-    el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Rename watch', title: 'Rename', onclick: () => renameWatch(w) }, '✎'),
+    el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Edit watch details', title: 'Edit details', onclick: () => editWatch(w) }, '✎'),
     el('button', { type: 'button', class: 'icon-btn sm danger', 'aria-label': 'Delete watch', title: 'Delete', onclick: () => deleteWatch(w) }, '🗑')));
 
   // Mark row: [+/-] [0..60 s] [Mark]
@@ -216,4 +150,7 @@ export function render() {
   box.append(list);
 }
 
-export function initTracker() { render(); }
+export function initTracker() {
+  render();
+  store.on('watches', render);
+}

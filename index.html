@@ -47,31 +47,41 @@
       </div>
     </section>
 
-    <!-- WORLD -->
-    <section class="tab" id="tab-world" data-tab="world">
-      <header class="topbar">
-        <h1>World</h1>
-      </header>
-      <div id="world-local" class="world-local"></div>
-      <div class="list" id="world-fixed"></div>
-      <h2 class="section-title">My places <span class="muted small">tap a slot to change it</span></h2>
-      <div class="list" id="world-slots"></div>
+    <!-- COLLECTION -->
+    <section class="tab" id="tab-collection" data-tab="collection">
+      <header class="topbar"><h1>Collection</h1></header>
+      <div id="collection"></div>
     </section>
 
-    <!-- WEATHER -->
-    <section class="tab" id="tab-weather" data-tab="weather">
-      <header class="topbar">
-        <h1>Weather</h1>
-      </header>
-      <div id="weather"></div>
+    <!-- WRIST -->
+    <section class="tab" id="tab-wrist" data-tab="wrist">
+      <header class="topbar"><h1>Wrist</h1></header>
+      <div id="wrist"></div>
     </section>
 
-    <!-- CURRENCY -->
-    <section class="tab" id="tab-currency" data-tab="currency">
+    <!-- TOOLS -->
+    <section class="tab" id="tab-tools" data-tab="tools">
       <header class="topbar">
-        <h1>Currency</h1>
+        <button type="button" id="tools-back" class="back-btn" hidden>‹ Tools</button>
+        <h1 id="tools-title">Tools</h1>
       </header>
-      <div id="currency"></div>
+      <div id="tools-home"></div>
+
+      <div class="tool-panel" data-tool="world" hidden>
+        <div id="world-local" class="world-local"></div>
+        <div class="list" id="world-fixed"></div>
+        <h2 class="section-title">My places <span class="muted small">tap a slot to change it</span></h2>
+        <div class="list" id="world-slots"></div>
+      </div>
+      <div class="tool-panel" data-tool="weather" hidden><div id="weather"></div></div>
+      <div class="tool-panel" data-tool="currency" hidden><div id="currency"></div></div>
+      <div class="tool-panel" data-tool="setting" hidden><div id="tool-setting-body"></div></div>
+      <div class="tool-panel" data-tool="moon" hidden><div id="tool-moon-body"></div></div>
+      <div class="tool-panel" data-tool="gmt" hidden><div id="tool-gmt-body"></div></div>
+      <div class="tool-panel" data-tool="timegrapher" hidden><div id="tool-timegrapher-body"></div></div>
+      <div class="tool-panel" data-tool="insurance" hidden><div id="tool-insurance-body"></div></div>
+      <div class="tool-panel" data-tool="settings" hidden><div id="tool-settings-body"></div></div>
+      <div class="tool-panel" data-tool="about" hidden><div id="tool-about-body"></div></div>
     </section>
   </main>
 
@@ -80,17 +90,17 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
       <span>Clock</span>
     </button>
-    <button type="button" class="tabbtn" data-tab="world">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18"/></svg>
-      <span>World</span>
+    <button type="button" class="tabbtn" data-tab="collection">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></svg>
+      <span>Collection</span>
     </button>
-    <button type="button" class="tabbtn" data-tab="weather">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 10.5 3.75 3.75 0 0 0 7 18z"/></svg>
-      <span>Weather</span>
+    <button type="button" class="tabbtn" data-tab="wrist" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2.5h6l.8 4.2M9 21.5h6l.8-4.2M9 2.5l-.8 4.2M9 21.5l-.8-4.2"/><circle cx="12" cy="12" r="5.3"/><path d="M12 9.6V12l1.6 1"/></svg>
+      <span>Wrist</span><i class="tab-badge" hidden></i>
     </button>
-    <button type="button" class="tabbtn" data-tab="currency">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>
-      <span>Currency</span>
+    <button type="button" class="tabbtn" data-tab="tools">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6.5a4 4 0 0 0-5.3 5.1L4 16.8 7.2 20l5.2-5.2a4 4 0 0 0 5.1-5.3l-2.4 2.4-2.6-.5-.5-2.6z"/></svg>
+      <span>Tools</span>
     </button>
   </nav>
 
