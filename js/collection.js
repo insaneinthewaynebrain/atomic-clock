@@ -367,8 +367,13 @@ export function openWatchEditor(watch, opts = {}) {
   });
 }
 
+/** Every stored photo a watch owns: face picture, gallery photos, insurance photos. */
+export function allPhotoIds(w) {
+  return [...new Set([w.face, ...(w.photos || []), ...Object.values(w.insPhotos || {})].filter(Boolean))];
+}
+
 export async function removeWatch(w) {
-  for (const id of [w.face, ...(w.photos || [])].filter(Boolean)) await deletePhoto(id).catch(() => {});
+  for (const id of allPhotoIds(w)) await deletePhoto(id).catch(() => {});
   const data = d();
   data.watches = data.watches.filter((x) => x.id !== w.id);
   data.wear = data.wear.filter((x) => x.watchId !== w.id);

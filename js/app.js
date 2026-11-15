@@ -17,11 +17,12 @@ import * as setting from './setting.js';
 import * as insurance from './insurance.js';
 import * as timegrapher from './timegrapher.js';
 import * as alarm from './alarm.js';
+import * as watchdocs from './watchdocs.js';
 
-export const APP_VERSION = '52';
+export const APP_VERSION = '53';
 
 // Feature modules that register their own tabs/tools.
-const EXTRA_MODULES = [wrist, setting, insurance, timegrapher, alarm];
+const EXTRA_MODULES = [wrist, watchdocs, setting, insurance, timegrapher, alarm];
 
 const TABS = {
   clock: { show: showClock, hide: hideClock },

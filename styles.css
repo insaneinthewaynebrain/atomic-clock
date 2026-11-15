@@ -1338,3 +1338,18 @@ dialog.cam.side .cam-toggles { flex-direction: column; }
 .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .id-body .guess-row { margin-top: 0; }
 .id-seg { margin: 0; }
+
+/* Insurance photos + documents on a watch's page */
+.ins-sec { margin-top: 14px; }
+.ins-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ins-tile { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ins-tile img, .ins-add { width: 100%; aspect-ratio: 1; border-radius: 10px; object-fit: cover; display: block; }
+.ins-add { border: 1px dashed var(--line); background: var(--bg); color: var(--muted); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px; text-align: center; overflow: hidden; }
+.ins-add .small { font-size: 10px; line-height: 1.2; }
+.ins-plus { font-size: 22px; color: var(--accent); }
+.ins-label { font-size: 12px; font-weight: 600; line-height: 1.2; }
+.ins-label .muted { font-weight: 400; }
+.ins-x { position: absolute; top: -6px; right: -6px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: var(--red); color: #fff; font-size: 15px; line-height: 26px; padding: 0; }
+.ins-replace { font-size: 12px; padding: 0; align-self: flex-start; }
+.doc-btns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+@media (min-width: 560px) { .ins-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

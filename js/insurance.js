@@ -62,14 +62,14 @@ async function buildHtml({ serials, photos, owner }) {
 </body></html>`;
 }
 
-function showPrintView(html) {
+export function showPrintView(html, { title = 'Insurance list', file = `insurance-list-${stamp()}.html`, onClose = null } = {}) {
   let view = $('print-view');
   if (view) view.remove();
-  const frame = el('iframe', { class: 'print-frame', title: 'Insurance list' });
+  const frame = el('iframe', { class: 'print-frame', title });
   view = el('div', { id: 'print-view' },
     el('div', { class: 'print-bar' },
-      el('button', { type: 'button', class: 'btn sm', onclick: () => view.remove() }, '✕ Close'),
-      el('button', { type: 'button', class: 'btn sm', onclick: () => shareOrDownload(new Blob([html], { type: 'text/html' }), `insurance-list-${stamp()}.html`, 'Insurance list') }, '📤 Share file'),
+      el('button', { type: 'button', class: 'btn sm', onclick: () => { view.remove(); if (onClose) onClose(); } }, '✕ Close'),
+      el('button', { type: 'button', class: 'btn sm', onclick: () => shareOrDownload(new Blob([html], { type: 'text/html' }), file, title) }, '📤 Share file'),
       el('button', { type: 'button', class: 'btn sm primary', onclick: () => { try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch (e) { window.print(); } } }, '🖨 Print / PDF')),
     frame);
   document.body.append(view);

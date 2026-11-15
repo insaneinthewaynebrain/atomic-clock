@@ -20,7 +20,11 @@ A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouT
   model by reference or by name, year (or not sure) — and the form, pre-filled with the dial reading and those
   answers; everything else is entered by hand (a button opens Chrono24's search for prices). The form also has
   seller type (private seller, or shop name/address/contact for a jeweller), legacy (who the watch is to be left to —
-  not a will), and each watch can make a for-sale QR code. Plus wishlist and sold/traded, more photos, values and a summary. What's on your wrist, service/warranty/battery reminders and
+  not a will), and each watch can make a for-sale QR code. Each watch also has an insurance photo checklist (front, case back,
+  both sides, clasp, serial and reference close-ups, scale, wrist, marks, box, papers, receipt, valuation), an
+  insurance PDF (all its details and photos, with a "not an official insurance document" disclaimer) and a memory
+  book PDF (face picture, its story and legacy note, details without the serial, insurance photos and galleries —
+  more galleries plug in through `memoryGalleries` in `js/watchdocs.js`). Plus wishlist and sold/traded, more photos, values and a summary. What's on your wrist, service/warranty/battery reminders and
   a wear calendar with stats sit at the top; each watch's own page has its wrist panel (wear now / taken
   off, power-reserve countdown with "Wound", recent wears, log a past wear). This replaces the old
   Collection and Wrist tabs (old `#wrist` links open the Watch Box).
