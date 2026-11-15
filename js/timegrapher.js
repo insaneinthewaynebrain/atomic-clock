@@ -1,25 +1,34 @@
 // Experimental timegrapher: listens to the watch through the phone microphone,
 // detects ticks and estimates rate (s/day) and beat error (ms).
+// The screen is a 4-step guide; the measurement itself runs full screen
+// (10-second countdown → 2-minute live reading → summary).
 import * as store from './store.js';
 import { el, toast, signed } from './ui.js';
 import { ownedWatches, getWatch, detailExtras } from './collection.js';
 
 const STD_BPH = [18000, 19800, 21600, 25200, 28800, 36000];
-const WINDOW_S = 20;          // analyse the last 20 seconds
+const WINDOW_S = 20;          // per-band tick history (used to choose the band)
+const LIVE_WINDOW_S = 60;     // live numbers use the last minute
 const MIN_S = 6;              // need at least this much before showing a result
 const BASELINE_S = 30;        // background measurement length
+const COUNTDOWN_S = 10;       // time to put the phone down and walk away
+const MEASURE_S = 120;        // measurement length
 const $ = (id) => document.getElementById(id);
 
 let ctx = null, stream = null, node = null;
 // mode: 'off' (mic closed) | 'baseline' | 'paused' | 'countdown' | 'listening'
 let mode = 'off';
 let running = false;          // true while listening for ticks
-let ticks = [];               // tick times (s, audio clock) from the chosen band
-let startT = 0, listenFrom = 0, selectAt = 0, lastResult = null, uiTimer = null, bphChoice = 'auto';
-let baseline = null;          // { at, bands: [{ median, p999 }] } — the room's background
-let baseUntil = 0, baseStarted = 0, countdownTimer = null;
+let ticks = [];               // recent tick times (s, audio clock) from the chosen band
+let runTicks = [];            // every tick from the chosen band during this measurement
+let startT = 0, listenFrom = 0, selectAt = 0, lastResult = null, bphChoice = 'auto', curBph = null;
+let baseline = null;          // { at, bands: [{ median, p95, p99 }], db, spikes, room }
+let baseUntil = 0, baseStarted = 0, baseLevels = [], countdownTimer = null;
 let chosen = null, selectInfo = null;
-let sampleRate = 48000;
+let sampleRate = 48000, level = 0;
+let wizStep = 1, skipped = false;
+let rafId = 0, lastAnalyse = 0, lastDraw = 0, lastTickSeen = 0, wake = null;
+let finalInfo = null;         // { r, at, watchId, bph, seconds, beats, signal, baseline }
 
 /* ---------- Signal processing ----------
    Five band-pass filters cover where watch ticks usually stand out. During the background
@@ -45,6 +54,7 @@ function quantile(arr, q) {
   const a = Float32Array.from(arr).sort();
   return a[Math.min(a.length - 1, Math.floor(q * a.length))];
 }
+const median = (arr) => { const a = arr.slice().sort((x, y) => x - y); return a[Math.floor(a.length / 2)]; };
 
 function bandPeriod(b) {
   const bph = bphChoice === 'auto' ? estimateBph(b.ticks) : Number(bphChoice);
@@ -52,6 +62,11 @@ function bandPeriod(b) {
 }
 
 function processBlock(start, data, sr) {
+  // Microphone level for the meters (works in every mode while the mic is open).
+  let pk = 0;
+  for (let i = 0; i < data.length; i += 4) { const a = Math.abs(data[i]); if (a > pk) pk = a; }
+  level = Math.max(pk, level * 0.85);
+  if (mode === 'baseline') baseLevels.push(pk);
   if (mode !== 'baseline' && mode !== 'listening') return;
   const attack = 1 - Math.exp(-1 / (sr * 0.0002));
   const release = 1 - Math.exp(-1 / (sr * 0.004));
@@ -76,6 +91,7 @@ function processBlock(start, data, sr) {
       const thr = Math.max(noise + 0.35 * (peak - noise), b.gate);
       if (armed && env > thr && env > noise * 4 && t - lastTick > refractory) {
         b.ticks.push(t); lastTick = t; armed = false;
+        if (b === chosen) runTicks.push(t);
       } else if (!armed && env < noise + 0.15 * (peak - noise)) armed = true;
     }
     Object.assign(b, { x1, x2, y1, y2, env, noise, peak, armed, lastTick });
@@ -88,12 +104,23 @@ function processBlock(start, data, sr) {
   if (chosen) ticks = chosen.ticks;
 }
 
+const toDb = (v) => 20 * Math.log10(Math.max(v, 1e-6));
+
 function finishBaseline() {
-  baseline = { at: Date.now(), bands: bands.map((b) => ({ median: quantile(b.stats, 0.5), p95: quantile(b.stats, 0.95), p99: quantile(b.stats, 0.99) })) };
+  const med = quantile(baseLevels, 0.5);
+  const spikes = baseLevels.length ? baseLevels.filter((v) => v > med * 4).length / baseLevels.length : 0;
+  const db = toDb(med);
+  const room = db < -55 && spikes < 0.03 ? 'quiet' : db < -40 && spikes < 0.08 ? 'ok' : 'noisy';
+  baseline = {
+    at: Date.now(), db, spikes, room,
+    bands: bands.map((b) => ({ median: quantile(b.stats, 0.5), p95: quantile(b.stats, 0.95), p99: quantile(b.stats, 0.99) })),
+  };
   bands.forEach((b) => { b.stats = []; });
+  baseLevels = [];
   mode = 'paused';
-  setStatus('Background measured ✓  Now place the watch against the phone, then tap Start — you’ll get a 3-second countdown so touching the phone doesn’t matter.', 'ok');
-  drawControls();
+  skipped = false;
+  wizStep = 2;
+  renderWizard();
 }
 
 // Pick the band where the sounds keep the steadiest beat (the watch); loudness breaks ties.
@@ -113,6 +140,7 @@ function chooseBand() {
   selectInfo = { hz: chosen.f0, ratio: best.ratio, rhythm: best.rhythm };
   bands.forEach((b) => { b.stats = []; });
   ticks = chosen.ticks;
+  runTicks = chosen.ticks.slice();
 }
 
 function estimateBph(ts) {
@@ -125,21 +153,36 @@ function estimateBph(ts) {
   return STD_BPH.reduce((a, b) => (Math.abs(b - est) < Math.abs(a - est) ? b : a));
 }
 
-function currentPeriod() {
-  const b = bphChoice === 'auto' ? estimateBph(ticks) : Number(bphChoice);
-  return b ? 3600 / b : null;
+/* Give every sound a beat number, following the watch's beat as it drifts. Counting from
+   the first sound alone goes wrong over long runs (a watch 60 s/day out drifts by more than half
+   a beat in two minutes), so the reference follows the recent on-beat sounds instead. */
+function assignBeats(ts, T) {
+  if (!ts.length) return [];
+  const t0 = ts[0], out = [], recent = [];
+  const tol = Math.max(0.003, T * 0.04);
+  let ref = 0, misses = 0;
+  for (const t of ts) {
+    const x = t - t0;
+    const n = Math.round((x - ref) / T);
+    const off = x - n * T;
+    if (Math.abs(off - ref) < tol) {
+      recent.push(off); if (recent.length > 7) recent.shift();
+      ref = median(recent); misses = 0;
+    } else if (++misses > 20) { ref = off; recent.length = 0; recent.push(off); misses = 0; }
+    out.push([n, t]);
+  }
+  return out;
 }
 
 /** Fit ticks to an ideal beat train: returns rate (s/day), beat error (ms) and quality. */
 export function analyse(ts, bph) {
   if (!bph || ts.length < 8) return null;
   const T = 3600 / bph;
-  const t0 = ts[0];
   // Linear fit with a separate offset for even/odd beats (tick vs tock).
   const fit = (rows) => {
     let sn = 0, st = 0, snn = 0, snt = 0, sp = 0, spp = 0, spn = 0, spt = 0;
     const m = rows.length;
-    for (const [n, t] of rows) { const p = n % 2; sn += n; st += t; snn += n * n; snt += n * t; sp += p; spp += p * p; spn += p * n; spt += p * t; }
+    for (const [n, t] of rows) { const p = n & 1; sn += n; st += t; snn += n * n; snt += n * t; sp += p; spp += p * p; spn += p * n; spt += p * t; }
     // Solve normal equations for t = a + b*n + c*p (3x3)
     const A = [[m, sn, sp], [sn, snn, spn], [sp, spn, spp]], B = [st, snt, spt];
     const det = (M) => M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
@@ -148,12 +191,11 @@ export function analyse(ts, bph) {
     const col = (k) => A.map((r, i) => r.map((v, j) => (j === k ? B[i] : v)));
     return { a: det(col(0)) / D, b: det(col(1)) / D, c: det(col(2)) / D };
   };
-  // Give every sound a beat number. Room noises land at random places; the watch lands on the beat.
-  let pts = ts.map((t) => [Math.round((t - t0) / T), t]);
-  if (pts.length < 8) return null;
-  let f = { a: t0, b: T, c: 0 };
+  // Room noises land at random places; the watch lands on the beat.
+  let pts = assignBeats(ts, T);
+  let f = { a: ts[0], b: T, c: 0 };
   for (let pass = 0; pass < 3; pass++) {
-    const res = (n, t) => t - (f.a + f.b * n + f.c * (n % 2));
+    const res = (n, t) => t - (f.a + f.b * n + f.c * (n & 1));
     // Keep the sound closest to the beat for each beat number…
     const best = new Map();
     for (const [n, t] of pts) { const r = Math.abs(res(n, t)); if (!best.has(n) || r < best.get(n)[0]) best.set(n, [r, t]); }
@@ -169,10 +211,10 @@ export function analyse(ts, bph) {
     const nf = fit(rows);
     if (!nf) return null;
     f = nf;
-    pts = pass < 2 ? ts.map((t) => [Math.round((t - f.a) / f.b), t]) : rows;
+    if (pass === 2) pts = rows;
   }
   pts.sort((x, y) => x[0] - y[0]);
-  const resid = pts.map(([n, t]) => t - (f.a + f.b * n + f.c * (n % 2)));
+  const resid = pts.map(([n, t]) => t - (f.a + f.b * n + f.c * (n & 1)));
   const sd = Math.sqrt(resid.reduce((s2, r) => s2 + r * r, 0) / resid.length);
   const span = pts[pts.length - 1][0] - pts[0][0] + 1;
   const found = pts.length / span;
@@ -182,7 +224,7 @@ export function analyse(ts, bph) {
   const steady = Math.max(0, 1 - sd / 0.0015);
   const score = Math.min(1, found) * steady;
   const confidence = score > 0.7 ? 'High' : score > 0.4 ? 'Medium' : 'Low';
-  return { rate, beatError, bph, found, jitterMs: sd * 1000, confidence, score, seconds: ts[ts.length - 1] - ts[0], residuals: pts.map(([n, t], i) => [t, resid[i] + f.c * (n % 2), n % 2]) };
+  return { rate, beatError, bph, found, jitterMs: sd * 1000, confidence, score, seconds: ts[ts.length - 1] - ts[0] };
 }
 
 /* ---------- Audio ---------- */
@@ -228,7 +270,6 @@ async function openAudio() {
     setStatus((MIC_ERRORS[e.name] || 'Could not use the microphone.') + (MIC_ERRORS[e.name] ? '' : ` (${e.name || 'error'}${e.message ? ': ' + e.message : ''})`), 'bad');
     return false;
   }
-  listDevices();
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     await ctx.audioWorklet.addModule('js/tick-worklet.js');
@@ -245,87 +286,456 @@ async function openAudio() {
   bands = BAND_HZ.map((f) => makeBand(f, sampleRate));
   node.port.onmessage = (e) => processBlock(e.data.start, e.data.data, sampleRate);
   await ctx.resume();
+  if (mode === 'off') mode = 'paused';
+  setStatus('', '');
+  listDevices();
+  startLoop();
   return true;
 }
 
+// A short two-note chime so you know from across the room that it has finished.
+function chime() {
+  if (!ctx) return;
+  try {
+    [[880, 0], [1318.5, 0.18]].forEach(([hz, dt]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + 0.05 + dt;
+      o.type = 'sine'; o.frequency.value = hz;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + 0.5);
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function keepAwake(on) {
+  if (on) {
+    if ('wakeLock' in navigator && (!wake || wake.released)) navigator.wakeLock.request('screen').then((w) => { wake = w; }).catch(() => {});
+  } else if (wake) { wake.release().catch(() => {}); wake = null; }
+}
+
+/* ---------- Steps ---------- */
 /** Step 1: listen to the room for 30 seconds with no watch in place. */
 async function measureBackground() {
   if (!(await openAudio())) return;
-  stopListening(true);
+  stopListening();
   bands.forEach((b) => { b.stats = []; });
-  baseline = null;
+  baseline = null; baseLevels = [];
   baseStarted = ctx.currentTime;
   baseUntil = ctx.currentTime + 0.5 + BASELINE_S;   // skip the tap itself
   mode = 'baseline';
-  setStatus('Measuring the background… keep the phone still where the test will be, with no watch on it.', '');
-  clearInterval(uiTimer); uiTimer = setInterval(update, 250);
-  drawControls();
+  wizStep = 1;
+  keepAwake(true);
+  renderWizard();
 }
 
-/** Step 2: 3-2-1 countdown (so touching the phone isn’t heard), then listen. */
-async function start() {
+function cancelBackground() {
+  stopListening();
+  baseline = null;
+  renderWizard();
+}
+
+async function skipBackground() {
+  skipped = true; baseline = null;
+  wizStep = 3;
+  renderWizard();
+  await openAudio();   // so the level meter works while placing the watch
+}
+
+/** Step 4: full screen — 10-second countdown, then a 2-minute measurement. */
+async function startMeasurement() {
   if (!(await openAudio())) return;
-  stopListening(true);
+  stopListening();
+  keepAwake(true);
+  openStage();
+  setPhase('count');
   mode = 'countdown';
-  let n = 3;
-  const show = () => { $('tg-count').textContent = String(n); $('tg-count').hidden = false; };
+  let n = COUNTDOWN_S;
+  const show = () => {
+    const box = $('tg-cd-num');
+    if (!box) return;
+    const num = el('span', { class: 'tg-cd-digit' + (n <= 3 ? ' last' : '') }, String(n));
+    box.replaceChildren(num);
+    const ring = $('tg-cd-ring');
+    if (ring) ring.style.strokeDashoffset = String(CD_CIRC * (1 - (n - 1) / COUNTDOWN_S));
+  };
+  const ring = $('tg-cd-ring');
+  if (ring) { ring.style.transition = 'none'; ring.style.strokeDashoffset = '0'; void ring.getBoundingClientRect(); ring.style.transition = ''; }
   show();
-  setStatus('Hands off the phone…', '');
-  drawControls();
   clearInterval(countdownTimer);
   countdownTimer = setInterval(() => {
     n--;
     if (n > 0) { show(); return; }
     clearInterval(countdownTimer);
-    $('tg-count').hidden = true;
     beginListening();
+    setPhase('measure');
   }, 1000);
 }
 
 function beginListening() {
-  ticks = []; lastResult = null; chosen = null; selectInfo = null;
-  for (const b of bands) {
+  ticks = []; runTicks = []; lastResult = null; chosen = null; selectInfo = null; curBph = null;
+  bands.forEach((b, i) => {
     Object.assign(b, { env: 0, noise: 1e-4, peak: 1e-3, armed: true, lastTick: -1, ticks: [], stats: [] });
-    const i = bands.indexOf(b);
     b.gate = baseline ? baseline.bands[i].p95 * 2 : 0;   // must be clearly above the room’s usual noise
-  }
+  });
   startT = ctx.currentTime;
   listenFrom = startT + 0.3;
   selectAt = listenFrom + 5;
+  lastAnalyse = 0; lastDraw = 0; lastTickSeen = 0;
   mode = 'listening';
   running = true;
-  setStatus('Listening… numbers settle after about 20 seconds.', '');
-  clearInterval(uiTimer); uiTimer = setInterval(update, 500);
-  drawControls();
+  resetLive();
 }
 
-// Pause keeps the microphone and the background measurement.
-function stopListening(silent) {
+// Stops listening but keeps the microphone and the background measurement.
+function stopListening() {
   clearInterval(countdownTimer);
-  const c = $('tg-count'); if (c) c.hidden = true;
   running = false;
   if (mode === 'listening' || mode === 'countdown' || mode === 'baseline') mode = ctx ? 'paused' : 'off';
-  if (!silent) {
-    setStatus(lastResult ? 'Paused. Save the result to a watch below, or tap Start for a new reading.' : 'Paused.', '');
-    drawControls();
-  }
 }
 
 function stop() {
-  running = false;
-  clearInterval(uiTimer); clearInterval(countdownTimer);
-  const c = $('tg-count'); if (c) c.hidden = true;
+  stopListening();
+  cancelAnimationFrame(rafId); rafId = 0;
   try { node && node.disconnect(); } catch (e) { /* ignore */ }
   if (stream) stream.getTracks().forEach((t) => t.stop());
   if (ctx) ctx.close().catch(() => {});
   ctx = stream = node = null;
   mode = 'off';
+  level = 0;
   setSession('playback');
-  drawControls();
-  setStatus(lastResult ? 'Stopped. Save the result to a watch below, or start again.' : 'Stopped.', '');
+  keepAwake(false);
 }
 
-/* ---------- UI ---------- */
+function finishMeasurement() {
+  const bph = curBph;
+  const elapsed = ctx ? ctx.currentTime - startT : 0;
+  stopListening();
+  const all = runTicks.filter((t) => t >= listenFrom + 1);
+  const r = (bph && analyse(all, bph)) || lastResult;
+  if (r) lastResult = r;
+  const w = getWatch($('tg-watch')?.value);
+  finalInfo = {
+    r, at: Date.now(), watchId: w ? w.id : '', bph, seconds: Math.round(Math.min(elapsed, MEASURE_S)),
+    beats: runTicks.length, signal: selectInfo, baseline: !!baseline, ticks: all, saved: false,
+  };
+  chime();
+  keepAwake(false);
+  setPhase('result');
+  renderResult();
+  renderWizard();
+}
+
+/* ---------- Live loop ---------- */
+function startLoop() {
+  if (rafId) return;
+  const loop = () => {
+    rafId = ctx ? requestAnimationFrame(loop) : 0;
+    if (!ctx) return;
+    // Level meters (step cards) and the background progress.
+    const pct = Math.max(0, Math.min(100, ((toDb(level) + 80) / 70) * 100));
+    document.querySelectorAll('.tg-level-bar').forEach((b) => { b.style.width = `${pct}%`; });
+    if (mode === 'baseline') {
+      const done = Math.min(1, (ctx.currentTime - baseStarted) / (BASELINE_S + 0.5));
+      const ring = $('tg-base-ring');
+      if (ring) ring.style.strokeDashoffset = String(BASE_CIRC * (1 - done));
+      const s = $('tg-base-secs');
+      if (s) s.textContent = String(Math.max(0, Math.ceil(baseUntil - ctx.currentTime)));
+    }
+    if (mode === 'listening') liveFrame();
+  };
+  rafId = requestAnimationFrame(loop);
+}
+
+const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const rateClass = (v) => (Math.abs(v) <= 10 ? 'good' : Math.abs(v) <= 20 ? 'mid' : 'badr');   // matches verdict()
+const beClass = (v) => (v <= 0.6 ? 'good' : v <= 1.2 ? 'mid' : 'badr');
+
+function resetLive() {
+  const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+  set('tg-l-timer', fmtClock(MEASURE_S));
+  set('tg-l-rate', '—'); set('tg-l-be', '—'); set('tg-l-beats', '0'); set('tg-l-bph', 'Finding the tick…');
+  set('tg-l-sig', ''); set('tg-l-conf', ''); set('tg-l-status', 'Listening… stay quiet and don’t touch the phone.');
+  const r = $('tg-l-rate'); if (r) r.className = 'tg-l-rate';
+  const p = $('tg-l-prog'); if (p) p.style.width = '0%';
+  drawTrace($('tg-l-trace'), [], 0, { span: MEASURE_S });
+}
+
+function liveFrame() {
+  const now = ctx.currentTime;
+  const elapsed = now - startT;
+  const left = Math.max(0, MEASURE_S - elapsed);
+  const timer = $('tg-l-timer');
+  if (timer) {
+    const txt = fmtClock(Math.ceil(left));
+    if (timer.textContent !== txt) timer.textContent = txt;
+    timer.classList.toggle('ending', left <= 10);
+  }
+  const p = $('tg-l-prog'); if (p) p.style.width = `${Math.min(100, (elapsed / MEASURE_S) * 100)}%`;
+  if (runTicks.length !== lastTickSeen) {
+    lastTickSeen = runTicks.length;
+    const dot = $('tg-l-dot');
+    if (dot) { dot.classList.remove('hit', 'odd'); void dot.offsetWidth; dot.classList.add('hit'); if (lastTickSeen % 2) dot.classList.add('odd'); }
+    const b = $('tg-l-beats'); if (b) b.textContent = lastTickSeen.toLocaleString('en-GB');
+  }
+  const ms = performance.now();
+  if (ms - lastAnalyse > 500) { lastAnalyse = ms; analyseLive(elapsed); }
+  if (ms - lastDraw > 120) { lastDraw = ms; drawTrace($('tg-l-trace'), runTicks.filter((t) => t >= listenFrom), curBph, { span: MEASURE_S, from: listenFrom }); }
+  if (elapsed >= MEASURE_S) finishMeasurement();
+}
+
+function analyseLive(elapsed) {
+  const set = (id, v) => { const e = $(id); if (e && e.textContent !== v) e.textContent = v; };
+  curBph = bphChoice === 'auto' ? (chosen ? estimateBph(chosen.ticks) || curBph : null) : Number(bphChoice);
+  set('tg-l-bph', !chosen ? 'Finding the tick…' : curBph ? `${curBph.toLocaleString('en-GB')} bph${bphChoice === 'auto' ? ' · auto' : ''}` : 'Detecting beat…');
+  if (selectInfo) set('tg-l-sig', `Signal ${selectInfo.ratio >= 10 ? Math.round(selectInfo.ratio) : selectInfo.ratio.toFixed(1)}× ${baseline ? 'above background' : 'above noise'} · ${(selectInfo.hz / 1000).toFixed(1)} kHz`);
+  const cut = startT + elapsed - LIVE_WINDOW_S;
+  const win = runTicks.filter((t) => t >= cut && t >= listenFrom);
+  const r = chosen && elapsed >= MIN_S + 2 && curBph ? analyse(win, curBph) : null;
+  const status = $('tg-l-status');
+  if (!r) {
+    if (elapsed > 12 && runTicks.length < 10) {
+      set('tg-l-status', selectInfo && selectInfo.rhythm < 0.2 && baseline ? 'Can’t pick out a steady tick yet — the watch may need to be pressed closer to the microphone.' : 'Not hearing clear ticks yet — check the watch is touching the microphone.');
+      if (status) status.className = 'tg-l-status warn';
+    }
+    return;
+  }
+  lastResult = r;
+  const rate = $('tg-l-rate');
+  if (rate) { rate.textContent = signed(r.rate, 1); rate.className = 'tg-l-rate ' + rateClass(r.rate); }
+  const be = $('tg-l-be');
+  if (be) { be.textContent = `${r.beatError.toFixed(1)} ms`; be.className = 'tg-l-val ' + beClass(r.beatError); }
+  set('tg-l-conf', `Confidence ${r.confidence} · ${Math.round(Math.min(1, r.found) * 100)}% of beats heard`);
+  const low = r.confidence === 'Low';
+  set('tg-l-status', low ? 'Readings are unsteady — keep the room quiet and the phone still.' : elapsed < 30 ? 'Locked on. Numbers settle over the first 30 seconds…' : 'Steady reading. Keep still until the timer ends.');
+  if (status) status.className = 'tg-l-status ' + (low ? 'warn' : 'ok');
+}
+
+// Timegrapher-style trace: each beat's timing against a perfect watch at this beat rate.
+// A line sloping up means fast, down means slow; two lines apart means beat error.
+function drawTrace(c, ts, bph, { span = 0, from = null } = {}) {
+  if (!c) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (!w || !h) return;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  // Grid
+  g.strokeStyle = 'rgba(143,152,171,.14)'; g.lineWidth = 1;
+  for (let i = 1; i < 6; i++) { const x = Math.round((w * i) / 6) + 0.5; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+  g.strokeStyle = 'rgba(143,152,171,.28)';
+  g.beginPath(); g.moveTo(0, Math.round(h / 2) + 0.5); g.lineTo(w, Math.round(h / 2) + 0.5); g.stroke();
+  if (!bph || ts.length < 4) return;
+  const T = 3600 / bph;
+  const rows = assignBeats(ts, T);
+  const tA = ts[0];
+  const offs = rows.map(([n, t]) => (tA + n * T - t) * 1000);   // ms; positive = early (fast), drawn upwards
+  const center = median(offs);
+  const dev = offs.map((o) => Math.abs(o - center)).sort((x, y) => x - y);
+  const half = Math.min((T * 1000) / 2, Math.max(4, (dev[Math.floor(dev.length * 0.85)] || 0) * 1.6));
+  const start = from ?? tA;
+  const total = span || Math.max(1, ts[ts.length - 1] - start);
+  // Millisecond guides
+  const step = half > 20 ? 10 : half > 8 ? 5 : 2;
+  g.fillStyle = 'rgba(143,152,171,.55)'; g.font = '10px -apple-system, system-ui, sans-serif';
+  for (let v = step; v < half; v += step) {
+    [1, -1].forEach((s) => {
+      const y = h / 2 - (s * v / half) * (h / 2 - 6);
+      g.strokeStyle = 'rgba(143,152,171,.08)'; g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
+      g.fillText(`${s > 0 ? '+' : '−'}${v} ms`, 4, y - 2);
+    });
+  }
+  const newest = ts[ts.length - 1];
+  rows.forEach(([n, t], i) => {
+    const d = offs[i] - center;
+    const out = Math.abs(d) > half;
+    const y = h / 2 - (Math.max(-half, Math.min(half, d)) / half) * (h / 2 - 6);
+    const x = 4 + ((t - start) / total) * (w - 8);
+    const fresh = newest - t < 1.5;
+    g.globalAlpha = out ? 0.25 : 1;
+    g.fillStyle = n & 1 ? '#fbbf24' : '#4cc2ff';
+    const s = fresh ? 4 : 2.6;
+    g.fillRect(x - s / 2, y - s / 2, s, s);
+  });
+  g.globalAlpha = 1;
+}
+
+/* ---------- Full-screen stage ---------- */
+const CD_R = 120, CD_CIRC = 2 * Math.PI * CD_R;
+const BASE_R = 34, BASE_CIRC = 2 * Math.PI * BASE_R;
+
+function openStage() {
+  let s = $('tg-stage');
+  if (s) { s.classList.remove('closing'); return s; }
+  s = el('div', { id: 'tg-stage', class: 'tg-stage', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Timegrapher measurement' },
+    el('button', { type: 'button', class: 'tg-x', 'aria-label': 'Close', onclick: closeStage }, '×'),
+    // Countdown
+    el('section', { class: 'tg-ph tg-ph-count' },
+      el('div', { class: 'tg-kicker' }, 'Step away from the watch'),
+      el('div', { class: 'tg-cd' },
+        el('div', { class: 'tg-cd-svg', html: `<svg viewBox="0 0 280 280" aria-hidden="true"><circle cx="140" cy="140" r="${CD_R}" class="tg-cd-track"/><circle id="tg-cd-ring" cx="140" cy="140" r="${CD_R}" class="tg-cd-prog" style="stroke-dasharray:${CD_CIRC};stroke-dashoffset:0"/></svg>` }),
+        el('div', { id: 'tg-cd-num', class: 'tg-cd-num', 'aria-live': 'polite' })),
+      el('div', { class: 'tg-cd-sub' }, 'Put the phone down, don’t touch it, and move away. The measurement starts by itself.'),
+      el('button', { type: 'button', class: 'btn tg-ghost', onclick: closeStage }, 'Cancel')),
+    // Live measurement
+    el('section', { class: 'tg-ph tg-ph-measure' },
+      el('div', { class: 'tg-live-top' },
+        el('span', { class: 'tg-live' }, el('span', { class: 'tg-live-dot' }), 'LIVE'),
+        el('span', { id: 'tg-l-bph', class: 'tg-chip' }, 'Finding the tick…')),
+      el('div', { class: 'tg-timer-wrap' },
+        el('div', { id: 'tg-l-timer', class: 'tg-timer' }, fmtClock(MEASURE_S)),
+        el('div', { class: 'tg-timer-sub' }, 'remaining')),
+      el('div', { class: 'tg-prog' }, el('span', { id: 'tg-l-prog' })),
+      el('div', { class: 'tg-l-graph' },
+        el('canvas', { id: 'tg-l-trace', class: 'tg-l-canvas', 'aria-label': 'Live beat timing trace' }),
+        el('div', { class: 'tg-legend' }, el('span', { class: 'tg-key tick' }, 'tick'), el('span', { class: 'tg-key tock' }, 'tock'), el('span', { class: 'muted' }, '↗ fast · ↘ slow'))),
+      el('div', { class: 'tg-l-grid' },
+        el('div', { class: 'tg-l-stat wide' }, el('div', { class: 'tg-l-lbl' }, 'Rate · s/day'), el('div', { id: 'tg-l-rate', class: 'tg-l-rate' }, '—')),
+        el('div', { class: 'tg-l-stat' }, el('div', { class: 'tg-l-lbl' }, 'Beat error'), el('div', { id: 'tg-l-be', class: 'tg-l-val' }, '—')),
+        el('div', { class: 'tg-l-stat' }, el('div', { class: 'tg-l-lbl' }, 'Beats heard ', el('span', { id: 'tg-l-dot', class: 'tg-beat-dot' })), el('div', { id: 'tg-l-beats', class: 'tg-l-val' }, '0'))),
+      el('div', { class: 'tg-l-meta' }, el('span', { id: 'tg-l-sig' }), el('span', { id: 'tg-l-conf' })),
+      el('div', { id: 'tg-l-status', class: 'tg-l-status' }),
+      el('button', { type: 'button', class: 'btn tg-ghost', onclick: () => { if (ctx && ctx.currentTime - startT >= 20 && lastResult) finishMeasurement(); else closeStage(); } }, 'Stop early')),
+    // Results
+    el('section', { id: 'tg-result', class: 'tg-ph tg-ph-result' }));
+  document.body.append(s);
+  document.body.classList.add('tg-stage-open');
+  return s;
+}
+
+function setPhase(p) {
+  const s = $('tg-stage');
+  if (s) { s.dataset.phase = p; s.scrollTop = 0; }
+}
+
+function closeStage() {
+  if (mode === 'countdown' || mode === 'listening') stopListening();
+  keepAwake(false);
+  const s = $('tg-stage');
+  document.body.classList.remove('tg-stage-open');
+  if (!s) return;
+  s.classList.add('closing');
+  setTimeout(() => s.remove(), 260);
+  renderWizard();
+  renderHistory();
+}
+
+function showLastResult() {
+  if (!finalInfo) return;
+  openStage();
+  setPhase('result');
+  renderResult();
+}
+
+function verdict(rate) {
+  const a = Math.abs(rate);
+  if (rate >= -4 && rate <= 6) return ['Excellent', 'Within chronometer (COSC) limits of −4 / +6 s/day.', 'good'];
+  if (a <= 10) return ['Very good', 'Better than most mechanical movement specs.', 'good'];
+  if (a <= 20) return ['Good', 'Typical for an everyday mechanical watch.', 'mid'];
+  if (a <= 40) return ['Fair', `Running ${rate > 0 ? 'fast' : 'slow'} — a regulation would help.`, 'mid'];
+  return ['Needs attention', `Running well ${rate > 0 ? 'fast' : 'slow'}. Consider regulation or a service.`, 'badr'];
+}
+const beVerdict = (v) => (v <= 0.5 ? 'Excellent' : v <= 1.0 ? 'Good' : v <= 2 ? 'Fair' : 'High');
+
+// Semicircle gauge from −60 to +60 s/day.
+function gaugeSvg() {
+  const R = 84, cx = 110, cy = 104, MAX = 60;
+  const pt = (v, r = R) => { const a = Math.PI * (v + MAX) / (2 * MAX); return [cx - r * Math.cos(a), cy - r * Math.sin(a)]; };
+  const arc = (v1, v2, cls) => { const [x1, y1] = pt(v1), [x2, y2] = pt(v2); return `<path class="${cls}" d="M${x1.toFixed(1)} ${y1.toFixed(1)} A${R} ${R} 0 0 1 ${x2.toFixed(1)} ${y2.toFixed(1)}"/>`; };
+  const ticksSvg = [-60, -40, -20, 0, 20, 40, 60].map((v) => {
+    const [x1, y1] = pt(v, R - 14), [x2, y2] = pt(v, R - 8), [tx, ty] = pt(v, R - 26);
+    return `<line class="tg-g-tick" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/><text class="tg-g-lbl" x="${tx.toFixed(1)}" y="${(ty + 3).toFixed(1)}">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 220 122" aria-hidden="true">
+    ${arc(-60, -20, 'tg-g-arc bad')}${arc(-20, -10, 'tg-g-arc mid')}${arc(-10, 10, 'tg-g-arc good')}${arc(10, 20, 'tg-g-arc mid')}${arc(20, 60, 'tg-g-arc bad')}
+    ${arc(-4, 6, 'tg-g-arc cosc')}${ticksSvg}
+    <g id="tg-needle" class="tg-needle"><line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - R + 6}"/><circle cx="${cx}" cy="${cy}" r="6"/></g>
+  </svg>`;
+}
+
+function countUp(node, to, digits, ms = 1300, fmt = (v) => v.toFixed(digits)) {
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) { node.textContent = fmt(to); return; }
+  const t0 = performance.now();
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+    node.textContent = fmt(to * e);
+    if (k < 1 && node.isConnected) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function renderResult() {
+  const box = $('tg-result');
+  if (!box || !finalInfo) return;
+  box.innerHTML = '';
+  const { r } = finalInfo;
+  const w = getWatch(finalInfo.watchId);
+  const when = new Date(finalInfo.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const again = el('button', { type: 'button', class: 'btn', onclick: startMeasurement }, '↻ Measure again');
+  const done = el('button', { type: 'button', class: 'btn primary', onclick: closeStage }, 'Done');
+  if (!r) {
+    box.append(
+      el('div', { class: 'tg-r-fail tg-in', style: '--d:0' },
+        el('div', { class: 'tg-r-fail-icon' }, '🔇'),
+        el('h2', {}, 'Couldn’t hear a steady tick'),
+        el('p', { class: 'muted' }, `${finalInfo.beats} sounds were picked up, but not enough of them kept the watch’s beat.`),
+        el('ul', { class: 'plain-list small' },
+          el('li', {}, 'Try wired earphones with the microphone resting on the case back.'),
+          el('li', {}, 'Make sure the watch is wound and running.'),
+          el('li', {}, 'Choose a quieter room and measure the background again.'),
+          el('li', {}, 'Set the beat rate on the main screen if you know it.'))),
+      el('div', { class: 'tg-r-btns tg-in', style: '--d:2' }, again, done));
+    return;
+  }
+  const [title, sub, cls] = verdict(r.rate);
+  const rateNum = el('span', { class: 'tg-r-rate ' + rateClass(r.rate) }, '0.0');
+  const card = (lbl, val, note, d, c = '') => el('div', { class: 'tg-r-card tg-in', style: `--d:${d}` },
+    el('div', { class: 'tg-l-lbl' }, lbl), el('div', { class: 'tg-r-val ' + c }, val), note ? el('div', { class: 'tg-r-note' }, note) : null);
+  const beVal = el('span', {}, '0.0');
+  const watchSel = el('select', { class: 'input', 'aria-label': 'Save to watch' },
+    ownedWatches().length ? ownedWatches().map((x) => el('option', { value: x.id, selected: x.id === finalInfo.watchId }, x.name)) : el('option', { value: '' }, 'No watches yet'));
+  const saveBtn = el('button', { type: 'button', class: 'btn primary', disabled: finalInfo.saved || !ownedWatches().length, onclick: () => {
+    if (saveResult(watchSel.value)) { finalInfo.saved = true; saveBtn.textContent = 'Saved ✓'; saveBtn.disabled = true; }
+  } }, finalInfo.saved ? 'Saved ✓' : 'Save to watch');
+  const graph = el('canvas', { class: 'tg-r-canvas', 'aria-label': 'Beat timing trace for the whole measurement' });
+
+  box.append(
+    el('div', { class: 'tg-r-head tg-in', style: '--d:0' },
+      el('div', { class: 'tg-kicker ok' }, '✓ Measurement complete'),
+      el('h2', { class: 'tg-r-title' }, w ? w.name : 'Your watch'),
+      el('div', { class: 'muted small' }, `${when} · ${fmtClock(finalInfo.seconds)} · ${r.bph.toLocaleString('en-GB')} bph`)),
+    el('div', { class: 'tg-gauge tg-in', style: '--d:1' },
+      el('div', { class: 'tg-gauge-svg', html: gaugeSvg() }),
+      el('div', { class: 'tg-gauge-read' }, rateNum, el('span', { class: 'tg-r-unit' }, 's/day'))),
+    el('div', { class: 'tg-verdict tg-in ' + cls, style: '--d:2' }, el('b', {}, title), el('span', {}, sub)),
+    el('div', { class: 'tg-r-cards' },
+      el('div', { class: 'tg-r-card tg-in', style: '--d:3' }, el('div', { class: 'tg-l-lbl' }, 'Beat error'), el('div', { class: 'tg-r-val ' + beClass(r.beatError) }, beVal, ' ms'), el('div', { class: 'tg-r-note' }, beVerdict(r.beatError))),
+      card('Beat rate', `${(r.bph / 1000).toLocaleString('en-GB', { maximumFractionDigits: 1 })}k`, `${r.bph.toLocaleString('en-GB')} bph · ${r.bph / 7200} Hz`, 4),
+      card('Confidence', r.confidence, `${Math.round(Math.min(1, r.found) * 100)}% of beats heard`, 5, r.confidence === 'High' ? 'good' : r.confidence === 'Medium' ? 'mid' : 'badr'),
+      card('Signal', finalInfo.signal ? `${finalInfo.signal.ratio >= 10 ? Math.round(finalInfo.signal.ratio) : finalInfo.signal.ratio.toFixed(1)}×` : '—', finalInfo.baseline ? 'louder than background' : 'background skipped', 6)),
+    el('div', { class: 'tg-r-graph tg-in', style: '--d:7' },
+      el('div', { class: 'tg-l-lbl' }, 'Trace · whole measurement'), graph,
+      el('div', { class: 'tg-legend' }, el('span', { class: 'tg-key tick' }, 'tick'), el('span', { class: 'tg-key tock' }, 'tock'), el('span', { class: 'muted' }, `${finalInfo.beats.toLocaleString('en-GB')} beats · timing spread ${r.jitterMs.toFixed(2)} ms`))),
+    el('div', { class: 'tg-r-save tg-in', style: '--d:8' }, watchSel, saveBtn),
+    el('div', { class: 'tg-r-btns tg-in', style: '--d:9' }, again, done),
+    el('p', { class: 'muted small tg-in', style: '--d:10' }, 'Phone microphones are far less sensitive than a real timegrapher — treat this as a guide. Amplitude can’t be measured this way.'));
+
+  countUp(rateNum, r.rate, 1, 1300, (v) => signed(v, 1));
+  countUp(beVal, r.beatError, 1, 1100);
+  const needle = box.querySelector('#tg-needle');
+  if (needle) {
+    const ang = (Math.max(-60, Math.min(60, r.rate)) / 60) * 90;
+    needle.style.transform = 'rotate(-90deg)';
+    requestAnimationFrame(() => requestAnimationFrame(() => { needle.style.transform = `rotate(${ang}deg)`; }));
+  }
+  requestAnimationFrame(() => drawTrace(graph, finalInfo.ticks, r.bph, {}));
+}
+
+/* ---------- Main panel ---------- */
 // Lists microphones (wired earphones, Bluetooth headsets…) once permission has been given.
 async function listDevices() {
   const sel = $('tg-mic');
@@ -334,103 +744,133 @@ async function listDevices() {
     const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
     const cur = store.get().tgDevice || '';
     sel.innerHTML = '';
-    sel.append(el('option', { value: '' }, 'Microphone: phone’s own'));
+    sel.append(el('option', { value: '' }, 'Phone’s own microphone'));
     devs.forEach((d, i) => { if (d.deviceId && d.deviceId !== 'default') sel.append(el('option', { value: d.deviceId, selected: d.deviceId === cur }, d.label || `Microphone ${i + 1}`)); });
-    sel.closest('.tg-mic-row').hidden = sel.options.length < 2;
+    const row = sel.closest('.tg-mic-row'); if (row) row.hidden = sel.options.length < 2;
   } catch (e) { /* ignore */ }
 }
 
-function setStatus(msg, cls) { const s = $('tg-status'); if (s) { s.textContent = msg; s.className = 'tg-status ' + (cls || ''); } }
+function setStatus(msg, cls) { const s = $('tg-status'); if (s) { s.textContent = msg; s.className = 'tg-status ' + (cls || ''); s.hidden = !msg; } }
 
-function update() {
-  if (mode === 'baseline') {
-    const done = Math.min(1, (ctx.currentTime - baseStarted) / (BASELINE_S + 0.5));
-    $('tg-base-bar').style.width = `${Math.round(done * 100)}%`;
-    $('tg-base-txt').textContent = `Measuring background… ${Math.max(0, Math.ceil(baseUntil - ctx.currentTime))} s`;
-    return;
-  }
-  if (!running) return;
-  const elapsed = ctx.currentTime - startT;
-  const bph = bphChoice === 'auto' ? estimateBph(ticks) : Number(bphChoice);
-  $('tg-bph').textContent = !chosen ? 'Finding the tick…' : bph ? `${bph.toLocaleString('en-GB')} bph${bphChoice === 'auto' ? ' (auto)' : ''}` : 'Detecting beat…';
-  if (selectInfo) $('tg-sig').textContent = `Watch is ${selectInfo.ratio >= 10 ? Math.round(selectInfo.ratio) : selectInfo.ratio.toFixed(1)}× ${baseline ? 'louder than the background' : 'above the noise'} (${(selectInfo.hz / 1000).toFixed(1)} kHz band)`;
-  const r = chosen && elapsed >= MIN_S + 2 ? analyse(ticks, bph) : null;
-  if (!r) {
-    $('tg-rate').textContent = '—'; $('tg-be').textContent = '—'; $('tg-conf').textContent = ticks.length ? `${ticks.length} ticks heard` : 'No ticks yet';
-    if (elapsed > 12 && ticks.length < 10) setStatus(selectInfo && selectInfo.rhythm < 0.2 && baseline ? 'Can’t pick out a steady tick above the background. Press its case back firmly against the bottom of the phone, or try a quieter room.' : 'Not hearing clear ticks. Try a quieter room and press the case back against the bottom of the phone.', 'warn');
-    drawTrace(null);
-    return;
-  }
-  lastResult = r;
-  $('tg-rate').textContent = `${signed(r.rate, 1)} s/day`;
-  $('tg-rate').className = 'tg-big ' + (Math.abs(r.rate) <= 6 ? 'good' : Math.abs(r.rate) <= 20 ? 'mid' : 'badr');
-  $('tg-be').textContent = `${r.beatError.toFixed(1)} ms`;
-  $('tg-be').className = 'tg-mid ' + (r.beatError <= 0.6 ? 'good' : r.beatError <= 1.2 ? 'mid' : 'badr');
-  $('tg-conf').textContent = `Confidence: ${r.confidence} · ${Math.round(r.found * 100)}% of beats heard`;
-  setStatus(r.confidence === 'Low' ? 'Readings are unsteady — keep the phone still and the room quiet.' : 'Listening… numbers settle after about 20 seconds.', r.confidence === 'Low' ? 'warn' : '');
-  drawTrace(r);
-  const save = $('tg-save'); if (save) save.disabled = false;
+const ROOM = {
+  quiet: ['Quiet', 'Great — this room is quiet enough for a good reading.', 'good'],
+  ok: ['Fairly quiet', 'Should be fine. A quieter spot may give steadier numbers.', 'mid'],
+  noisy: ['Noisy', 'There’s a lot of background sound. Try a quieter room, or use wired earphones on the case back.', 'badr'],
+};
+
+function levelMeter(label) {
+  return el('div', { class: 'tg-level-row' }, el('span', { class: 'muted small' }, label), el('div', { class: 'tg-level' }, el('span', { class: 'tg-level-bar' })));
 }
 
-// Timegrapher-style trace: each beat's timing error over time (a slope means fast/slow).
-function drawTrace(r) {
-  const c = $('tg-trace');
-  if (!c) return;
-  const dpr = window.devicePixelRatio || 1;
-  const w = c.clientWidth, h = c.clientHeight;
-  if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
-  const g = c.getContext('2d');
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.fillStyle = '#0b0d12'; g.fillRect(0, 0, w, h);
-  g.strokeStyle = '#2a3142'; g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
+function renderWizard() {
+  const box = $('tg-steps');
+  if (!box) return;
+  const busy = mode === 'baseline';
+  const room = baseline ? ROOM[baseline.room] : null;
+  const steps = [
+    { n: 1, title: 'Measure the background', done: !!baseline || skipped, tone: room ? room[2] : '', summary: baseline ? `Done · ${room[0]}` : skipped ? 'Skipped' : '' },
+    { n: 2, title: 'Background measurement complete', done: wizStep > 2, tone: room ? room[2] : '', summary: baseline ? room[0] : skipped ? 'Skipped' : '' },
+    { n: 3, title: 'Place the watch next to the microphone', done: wizStep > 3, summary: store.get().tgDevice ? 'External microphone' : 'Ready' },
+    { n: 4, title: 'Start measurement & step away', done: false, summary: '' },
+  ];
+  const body = (n) => {
+    if (n === 1) {
+      if (busy) {
+        return [
+          el('div', { class: 'tg-base-live' },
+            el('div', { class: 'tg-base-ringbox', html: `<svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="${BASE_R}" class="tg-cd-track"/><circle id="tg-base-ring" cx="40" cy="40" r="${BASE_R}" class="tg-cd-prog" style="stroke-dasharray:${BASE_CIRC};stroke-dashoffset:${BASE_CIRC}"/></svg><span id="tg-base-secs">${BASELINE_S}</span>` }),
+            el('div', {}, el('b', {}, 'Listening to the room…'), el('div', { class: 'muted small' }, 'Stay quiet and keep still. No watch near the phone.'))),
+          levelMeter('Room sound'),
+          el('button', { type: 'button', class: 'btn sm tg-ghost', onclick: cancelBackground }, 'Cancel'),
+        ];
+      }
+      return [
+        el('ul', { class: 'tg-checks' },
+          el('li', {}, el('b', {}, 'Go somewhere as quiet as possible'), ' — no TV, music, fans or talking. The quieter the room, the better the watch can be heard.'),
+          el('li', {}, el('b', {}, 'Put the phone where the test will happen'), ', ideally on something soft like a folded cloth, with no watch near it.'),
+          el('li', {}, el('b', {}, 'Stay still for 30 seconds'), ' while the app learns the room’s sound so it can ignore it later.')),
+        el('button', { type: 'button', class: 'btn primary wide tg-go', onclick: measureBackground }, 'Measure background · 30 s'),
+        el('button', { type: 'button', class: 'tg-link', onclick: skipBackground }, 'Skip this step (less accurate)'),
+      ];
+    }
+    if (n === 2) {
+      if (!baseline) return [el('p', { class: 'muted small' }, 'Background skipped — the app will estimate the noise as it listens.'), el('button', { type: 'button', class: 'btn primary wide', onclick: () => { wizStep = 3; renderWizard(); } }, 'Continue')];
+      return [
+        el('div', { class: 'tg-room ' + room[2] },
+          el('div', { class: 'tg-room-badge' }, baseline.room === 'noisy' ? '!' : '✓'),
+          el('div', {}, el('b', {}, `Room: ${room[0]}`), el('div', { class: 'small' }, room[1]))),
+        el('div', { class: 'tg-room-facts muted small' },
+          el('span', {}, `Background level ${String(Math.round(baseline.db)).replace('-', '−')} dB`),
+          el('span', {}, `Sudden noises: ${baseline.spikes < 0.01 ? 'none' : baseline.spikes < 0.05 ? 'a few' : 'many'}`)),
+        el('div', { class: 'tg-row-btns' },
+          el('button', { type: 'button', class: 'btn', onclick: measureBackground }, 'Measure again'),
+          el('button', { type: 'button', class: 'btn primary', onclick: () => { wizStep = 3; renderWizard(); } }, 'Continue →')),
+      ];
+    }
+    if (n === 3) {
+      return [
+        el('div', { class: 'tg-opt best' },
+          el('div', { class: 'tg-opt-tag' }, 'Best'),
+          el('b', {}, '🎧 Wired earphones on the case back'),
+          el('p', { class: 'small' }, 'Plug in wired earphones that have a microphone (USB-C or Lightning). Lay the watch dial-down on a soft cloth and rest the earphones’ little microphone on the middle of the case back.'),
+          el('div', { class: 'tg-mic-row', hidden: true },
+            el('select', { id: 'tg-mic', class: 'input', 'aria-label': 'Microphone', onchange: (e) => {
+              store.get().tgDevice = e.target.value; store.save();
+              const wasOpen = mode !== 'off';
+              stop(); baseline = null; skipped = false; wizStep = 1; renderWizard();
+              toast('Microphone changed — measure the background again with it');
+              if (wasOpen) openAudio();
+            } }))),
+        el('div', { class: 'tg-opt' },
+          el('b', {}, '📱 Phone microphone'),
+          el('p', { class: 'small' }, 'Lay the phone on a soft cloth and press the watch’s case back against the bottom edge of the phone, where the microphone is.')),
+        el('p', { class: 'muted small' }, 'Wind the watch fully first. Bluetooth earphones (e.g. AirPods) filter out much of the tick, so they work less well.'),
+        ctx ? levelMeter('Microphone') : null,
+        el('button', { type: 'button', class: 'btn primary wide', onclick: () => { wizStep = 4; renderWizard(); } }, 'The watch is in place →'),
+      ];
+    }
+    return [
+      el('p', { class: 'small' }, `When you tap Start you get ${COUNTDOWN_S} seconds to put the phone down and move away, so your movement isn’t heard. Then it measures for ${MEASURE_S / 60} minutes and stops by itself.`),
+      el('p', { class: 'muted small' }, 'The screen is designed to be read from across the room, and a chime plays when it has finished.'),
+      el('button', { type: 'button', class: 'btn primary wide tg-start-big', onclick: startMeasurement }, el('span', {}, '▶'), ' Start measurement'),
+    ];
+  };
+  box.replaceChildren(...steps.map((s) => {
+    const active = s.n === wizStep;
+    const canJump = !busy && !active && s.done && !(s.n === 2 && !baseline && !skipped);
+    const head = el(canJump ? 'button' : 'div', { type: canJump ? 'button' : null, class: 'tg-step-head', onclick: canJump ? () => { wizStep = s.n; renderWizard(); } : null },
+      el('span', { class: 'tg-step-num' }, s.done && !active ? '✓' : String(s.n)),
+      el('span', { class: 'tg-step-title' }, s.title),
+      !active && s.summary && s.done ? el('span', { class: 'tg-step-sum ' + (s.tone || '') }, s.summary) : null);
+    return el('div', { class: `tg-step${active ? ' active' : ''}${s.done && !active ? ' done' : ''}${s.n > wizStep && !s.done ? ' todo' : ''}` },
+      head, active ? el('div', { class: 'tg-step-body' }, body(s.n)) : null);
+  }));
+  if (wizStep === 3) listDevices();
+  renderLast();
+}
+
+function renderLast() {
+  const box = $('tg-last');
+  if (!box) return;
+  box.innerHTML = '';
+  const r = finalInfo?.r;
   if (!r) return;
-  const T = 3600 / r.bph;
-  const pts = r.residuals;
-  const t0 = pts[0][0], t1 = pts[pts.length - 1][0] || t0 + 1;
-  // Show the drift: add back the rate so the line slopes like a paper timegrapher.
-  const slope = -(r.rate / 86400);
-  const scaleY = h / 2 / 0.004;  // ±4 ms full scale
-  for (const [t, res, odd] of pts) {
-    const y = h / 2 - (res + slope * (t - t0) - (slope * (t1 - t0)) / 2) * scaleY * -1;
-    const x = ((t - t0) / Math.max(1, t1 - t0)) * (w - 8) + 4;
-    g.fillStyle = odd ? '#fbbf24' : '#4cc2ff';
-    g.fillRect(x - 1.5, Math.max(0, Math.min(h - 3, y - 1.5)), 3, 3);
-  }
-  void T;
+  box.append(el('button', { type: 'button', class: 'card tg-last-card', onclick: showLastResult },
+    el('div', {}, el('div', { class: 'stat-label' }, 'Last measurement'),
+      el('div', { class: 'tg-last-rate ' + rateClass(r.rate) }, `${signed(r.rate, 1)} s/day`),
+      el('div', { class: 'muted small' }, `Beat error ${r.beatError.toFixed(1)} ms · ${r.bph.toLocaleString('en-GB')} bph · ${r.confidence} confidence`)),
+    el('span', { class: 'tg-last-go' }, 'View ›')));
 }
 
-function drawControls() {
-  const main = $('tg-start'), second = $('tg-second'), base = $('tg-base');
-  if (!main) return;
-  const set = (btn, text, cls, fn, disabled = false) => { btn.textContent = text; btn.className = 'btn ' + cls; btn.onclick = fn; btn.disabled = disabled; };
-  // Background card
-  base.classList.toggle('done', !!baseline);
-  base.classList.toggle('busy', mode === 'baseline');
-  $('tg-base-txt').textContent = mode === 'baseline' ? 'Measuring background…' : baseline
-    ? `✓ Background measured ${Math.max(0, Math.round((Date.now() - baseline.at) / 60000))} min ago`
-    : 'Not measured yet — recommended';
-  $('tg-base-btn').textContent = mode === 'baseline' ? 'Cancel' : baseline ? 'Measure again' : '① Measure background (30 s)';
-  $('tg-base-btn').onclick = mode === 'baseline' ? () => { stopListening(false); baseline = null; drawControls(); } : measureBackground;
-  if (mode !== 'baseline') $('tg-base-bar').style.width = baseline ? '100%' : '0%';
-  // Main buttons
-  if (mode === 'listening' || mode === 'countdown') {
-    set(main, '❚❚ Pause', 'danger', () => stopListening(false));
-  } else {
-    set(main, baseline ? '② Start (3-2-1)' : '▶ Start (3-2-1)', 'primary', start, mode === 'baseline');
-  }
-  set(second, '■ Stop mic', '', stop, mode === 'off');
-}
-
-function saveResult() {
-  const r = lastResult;
-  if (!r) return;
-  const sel = $('tg-watch');
-  const w = getWatch(sel && sel.value);
-  if (!w) { toast('Choose a watch first'); return; }
-  (w.timegrapher ||= []).push({ t: Date.now(), rate: Math.round(r.rate * 10) / 10, beatError: Math.round(r.beatError * 10) / 10, bph: r.bph, confidence: r.confidence, seconds: Math.round(r.seconds) });
+function saveResult(watchId) {
+  const r = finalInfo?.r;
+  if (!r) return false;
+  const w = getWatch(watchId);
+  if (!w) { toast('Choose a watch first'); return false; }
+  (w.timegrapher ||= []).push({ t: finalInfo.at, rate: Math.round(r.rate * 10) / 10, beatError: Math.round(r.beatError * 10) / 10, bph: r.bph, confidence: r.confidence, seconds: finalInfo.seconds });
   store.save(); store.emit('watches');
   toast(`Saved to ${w.name}`);
-  renderHistory();
+  return true;
 }
 
 function renderHistory() {
@@ -466,42 +906,25 @@ function render() {
   bphSel.value = bphChoice;
 
   box.append(
-    el('div', { class: 'notice warn' }, el('b', {}, 'Experimental. '), 'A phone microphone is far less sensitive than a real timegrapher, so treat the numbers as a rough guide. Amplitude can’t be measured this way.'),
     el('div', { class: 'card tg-card' },
-      el('div', { class: 'row2' }, watchSel, bphSel),
-      el('div', { class: 'tg-mic-row', hidden: true }, el('select', { id: 'tg-mic', class: 'input', 'aria-label': 'Microphone', onchange: (e) => { store.get().tgDevice = e.target.value; store.save(); baseline = null; if (mode !== 'off') stop(); } })),
-      el('div', { class: 'tg-readout' },
-        el('div', {}, el('div', { class: 'stat-label' }, 'Rate'), el('div', { id: 'tg-rate', class: 'tg-big' }, '—')),
-        el('div', {}, el('div', { class: 'stat-label' }, 'Beat error'), el('div', { id: 'tg-be', class: 'tg-mid' }, '—'))),
-      el('div', { class: 'tg-meta' }, el('span', { id: 'tg-bph' }, ''), el('span', { id: 'tg-conf' }, '')),
-      el('div', { class: 'tg-trace-wrap' },
-        el('canvas', { id: 'tg-trace', class: 'tg-trace', 'aria-label': 'Beat timing trace' }),
-        el('div', { id: 'tg-count', class: 'tg-count', hidden: true }, '3')),
-      el('div', { id: 'tg-sig', class: 'tg-sig' }),
-      el('div', { id: 'tg-status', class: 'tg-status' }, 'First measure the background with no watch on the phone, then place the watch and tap Start.'),
-      el('div', { id: 'tg-base', class: 'tg-base' },
-        el('div', { class: 'tg-base-top' }, el('span', { id: 'tg-base-txt', class: 'small' }, ''), el('button', { type: 'button', id: 'tg-base-btn', class: 'btn sm' }, '')),
-        el('div', { class: 'tg-base-track' }, el('span', { id: 'tg-base-bar', class: 'tg-base-bar' }))),
-      el('div', { class: 'tg-btns' },
-        el('button', { type: 'button', id: 'tg-start', class: 'btn primary' }, '▶ Start'),
-        el('button', { type: 'button', id: 'tg-second', class: 'btn' }, '■ Stop mic'),
-        el('button', { type: 'button', id: 'tg-save', class: 'btn', disabled: !lastResult, onclick: saveResult }, 'Save to watch'))),
-    el('div', { class: 'card' },
-      el('h2', { class: 'card-title' }, 'Tips for a good reading'),
+      el('div', { class: 'tg-hero' },
+        el('div', { class: 'tg-hero-icon' }, '🎙️'),
+        el('div', {}, el('h2', { class: 'card-title' }, 'Timegrapher'), el('div', { class: 'muted small' }, 'Listens to your watch tick to estimate its rate and beat error. Experimental — a guide, not a lab instrument.'))),
+      el('div', { class: 'row2 tg-setup' }, watchSel, bphSel),
+      el('div', { id: 'tg-steps', class: 'tg-steps' }),
+      el('div', { id: 'tg-status', class: 'tg-status', hidden: true })),
+    el('div', { id: 'tg-last' }),
+    el('details', { class: 'card tg-tips' },
+      el('summary', {}, 'More tips for a good reading'),
       el('ul', { class: 'plain-list small' },
-        el('li', {}, 'Measure the background first with the phone exactly where the test will be, but no watch on it. The app then ignores those room sounds.'),
-        el('li', {}, 'Use a quiet room — no fans, TV or talking.'),
-        el('li', {}, 'Lay the phone on a soft surface and press the watch’s case back against the bottom edge of the phone (where the microphone is).'),
-        el('li', {}, 'Wind the watch fully first; keep it still for 20–30 seconds.'),
         el('li', {}, 'Set the beat rate if you know it (e.g. 28,800 bph for most modern Swiss movements, 21,600 for Seiko NH35/4R).'),
-        el('li', {}, 'Better microphone: wired earphones with a built-in microphone (USB-C or Lightning) work well. Hold the little microphone against the case back. Once connected, choose it in the Microphone box that appears.'),
-        el('li', {}, 'Bluetooth earphones (e.g. AirPods) also work, but their microphones filter out much of the tick, so results are usually weaker.'),
-        el('li', {}, 'Test dial up and crown down too — the same positions as the accuracy tracker.'))),
+        el('li', {}, 'Measure the background with the phone exactly where the test will be. The app then ignores those room sounds.'),
+        el('li', {}, 'A soft surface (cloth, mouse mat) stops vibrations from the table reaching the microphone.'),
+        el('li', {}, 'Test dial up and crown down too — the same positions as the accuracy tracker.'),
+        el('li', {}, 'Amplitude can’t be measured with a phone microphone.'))),
     el('div', { id: 'tg-history' }));
-  drawControls();
+  renderWizard();
   renderHistory();
-  drawTrace(lastResult);
-  listDevices();
 }
 
 function tgDetail(w) {
@@ -511,6 +934,6 @@ function tgDetail(w) {
 }
 
 export function register({ registerTool }) {
-  registerTool({ id: 'timegrapher', title: 'Timegrapher', icon: '🎙️', desc: 'Experimental: listen to the tick', panel: 'timegrapher', show: render, hide: () => { if (mode !== 'off') stop(); }, order: 70 });
+  registerTool({ id: 'timegrapher', title: 'Timegrapher', icon: '🎙️', desc: 'Experimental: listen to the tick', panel: 'timegrapher', show: render, hide: () => { const s = $('tg-stage'); if (s) { s.remove(); document.body.classList.remove('tg-stage-open'); } if (mode !== 'off') stop(); }, order: 70 });
   detailExtras.push(tgDetail);
 }
