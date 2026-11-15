@@ -140,12 +140,13 @@ export function initCountdown() {
   if (!slot || $('cd-ring')) return;
   slot.append(
     el('div', { id: 'countdown', class: 'countdown' },
-      el('div', { class: 'cd-next' }, 'Next minute ', el('b', { id: 'cd-target' }, '--:--:00')),
       el('div', { id: 'cd-ring', class: 'cd-ring' },
         el('div', { id: 'cd-pulses', class: 'cd-pulses', 'aria-hidden': 'true' }),
         el('div', { class: 'cd-halo', 'aria-hidden': 'true' }),
         el('div', { class: 'cd-svg', 'aria-hidden': 'true', html: `<svg viewBox="0 0 240 240"><circle class="cd-track" cx="120" cy="120" r="108"/><circle id="cd-arc" class="cd-arc" cx="120" cy="120" r="108" transform="rotate(-90 120 120)" stroke-dasharray="${CIRC.toFixed(2)}"/></svg>` }),
         el('div', { class: 'cd-center' },
+          el('div', { class: 'cd-next' }, 'Next minute'),
+          el('div', { id: 'cd-target', class: 'cd-target' }, '--:--:00'),
           el('div', { class: 'cd-left' }, el('span', { id: 'cd-sec' }, '--'), el('span', { id: 'cd-ms', class: 'cd-ms' }, '.---')),
           el('div', { class: 'cd-unit' }, 'seconds to go')))),
     el('div', { class: 'cd-controls' },
@@ -154,7 +155,7 @@ export function initCountdown() {
         el('summary', {}, 'How to set a watch to the second'),
         el('ol', { class: 'steps small' },
           el('li', {}, 'Pull the crown out to the time-setting position. Most mechanical watches “hack”: the seconds hand stops. Stop it at 12.'),
-          el('li', {}, 'Set the minute hand exactly on the “Next minute” shown above the ring.'),
+          el('li', {}, 'Set the minute hand exactly on the “Next minute” shown inside the ring.'),
           el('li', {}, 'As the ring turns amber and red, get ready — push the crown in the moment it reaches zero, on the long pip.'),
           el('li', {}, 'Watch doesn’t hack? Wait until its seconds hand passes 12 as the ring hits zero, then set the minute hand.')),
         el('p', { class: 'muted small' }, 'Beeps: five short pips, then a long pip exactly on the minute. They play even with the silent switch on (iOS 16.4 or later); turn the volume up.'))));

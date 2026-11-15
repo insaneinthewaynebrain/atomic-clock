@@ -566,12 +566,12 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 @media (min-width: 700px) { .tool-panel[data-tool="timegrapher"] > div { max-width: 680px; margin: 0 auto; } }
 
 /* ================= Minute countdown ring (Clock tab) ================= */
-.countdown { margin-top: 18px; }
-.cd-next { font-size: 15px; color: var(--muted); }
-.cd-next b { color: var(--text); font-size: 20px; font-variant-numeric: tabular-nums; margin-left: 4px; }
+.countdown { margin-top: 10px; }
+.cd-next { font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
+.cd-target { font-size: min(5.2vw, 2.6vh, 20px); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); margin-bottom: 4px; }
 .cd-ring {
   --c: 34,197,94; --glow: 4px; --glowa: .25; --spread: 1;
-  position: relative; width: min(100%, 50vh, 380px); aspect-ratio: 1 / 1; margin: 12px auto 4px;
+  position: relative; width: min(78%, 36vh, 300px); aspect-ratio: 1 / 1; margin: 14px auto 4px;
 }
 .cd-svg, .cd-svg svg, .cd-halo, .cd-pulses, .cd-center { position: absolute; inset: 0; }
 .cd-svg svg { width: 100%; height: 100%; overflow: visible; }
@@ -597,9 +597,9 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 .cd-pulse.big { border-width: 10px; animation-duration: 1.2s; }
 @keyframes emanate { from { transform: scale(1); opacity: 1; } to { transform: scale(1.45); opacity: 0; } }
 .cd-center { display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.cd-left { font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; color: rgb(var(--c)); font-size: min(17vw, 7.4vh, 84px); white-space: nowrap; }
+.cd-left { font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; color: rgb(var(--c)); font-size: min(12vw, 5.6vh, 64px); white-space: nowrap; }
 .cd-ms { font-size: .55em; }
-.cd-unit { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.cd-unit { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .cd-ring.flash .cd-left { color: #fff; }
 .cd-controls { margin: 14px auto 0; max-width: 420px; text-align: left; }
 .cd-seg { margin: 0; }
@@ -625,5 +625,7 @@ dialog.viewer { width: min(900px, calc(100vw - 16px)); background: #000; }
 .zone-head { font-size: 17px; }
 .zone-box p { margin-top: 6px; }
 .zone-why summary { color: #fecaca; font-size: 13px; font-weight: 700; cursor: pointer; margin-top: 6px; }
-/* Keep the ring on screen when the date warning is showing */
-.clock:has(#clock-zone:not([hidden])) .cd-ring { width: min(100%, 40vh, 380px); }
+.zone-box.safe { border: 1px solid rgba(52,211,153,.45); background: rgba(52,211,153,.07); box-shadow: none; padding: 9px 12px; margin: 12px 0 2px; }
+.zone-line { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.zone-line b { color: var(--green); }
+.zone-tick { color: var(--green); font-weight: 900; }

@@ -28,22 +28,29 @@ function dateZoneBox(big = false) {
     el('div', {}, 'Outside the 21:00–03:00 danger zone. Tip: set the date first, then move the time forward past midnight to get AM/PM right.'));
 }
 
+function fmtLeft(mins) { return mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`; }
+
+// Always-visible date-change status on the Clock tab: green when safe, red 21:00–03:00.
 function updateClockZone() {
   const n = $('clock-zone');
   if (!n) return;
   const t = now();
   const z = inDangerZone(t);
-  n.hidden = !z;
-  if (!z) return;
-  const end = new Date(t); if (end.getHours() >= 21) end.setDate(end.getDate() + 1); end.setHours(3, 0, 0, 0);
-  const mins = Math.ceil((end - t) / 60000);
-  const left = mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
+  n.hidden = false;
+  n.className = 'zone-box ' + (z ? 'danger' : 'safe');
   n.innerHTML = '';
-  n.append(
-    el('div', { class: 'zone-head' }, el('span', { class: 'zone-icon' }, '⚠️'), el('span', {}, 'Don’t change the date now')),
-    el('p', {}, el('b', {}, 'You could damage your watch. '), `Safe again at 03:00 (in ${left}). Setting the time is fine.`),
-    el('details', { class: 'zone-why' }, el('summary', {}, 'Why?'),
-      el('p', {}, 'Between 21:00 and 03:00 the date-change mechanism in many watches is already engaged, and using the quick-set date can strain or break it. Always check your watch’s manual.')));
+  if (z) {
+    const end = new Date(t); if (end.getHours() >= 21) end.setDate(end.getDate() + 1); end.setHours(3, 0, 0, 0);
+    n.append(
+      el('div', { class: 'zone-head' }, el('span', { class: 'zone-icon' }, '⚠️'), el('span', {}, 'Don’t change the date now')),
+      el('p', {}, el('b', {}, 'You could damage your watch. '), `Safe again at 03:00 (in ${fmtLeft(Math.ceil((end - t) / 60000))}). Setting the time is fine.`),
+      el('details', { class: 'zone-why' }, el('summary', {}, 'Why?'),
+        el('p', {}, 'Between 21:00 and 03:00 the date-change mechanism in many watches is already engaged, and using the quick-set date can strain or break it. Always check your watch’s manual.')));
+  } else {
+    const end = new Date(t); end.setHours(21, 0, 0, 0);
+    n.append(el('div', { class: 'zone-line', title: `${fmtLeft(Math.ceil((end - t) / 60000))} left` }, el('span', { class: 'zone-tick' }, '✓'),
+      el('span', {}, el('b', {}, 'OK to change the date'), ' until 21:00')));
+  }
 }
 
 function renderZone() {
