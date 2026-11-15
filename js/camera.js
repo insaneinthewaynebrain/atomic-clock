@@ -11,17 +11,23 @@ export const SHAPES = [
 ];
 const OUT = { circle: [800, 800], square: [800, 800], rect: [600, 800] };   // saved picture size (px)
 
-/** Size of the guide on screen for a shape, inside a W×H area. */
-function frameRect(shape, W, H) {
+const HINT_H = 34;   // room kept under the guide for the hint line
+
+/** The guide's size and place: as big as fits between the top controls (y0) and the bottom controls (y1). */
+function frameRect(shape, x0, x1, y0, y1) {
+  const W = x1 - x0;
+  const availH = Math.max(100, y1 - y0 - HINT_H);
   let fw, fh;
   if (shape === 'rect') {
-    fw = Math.min(W * 0.62, H * 0.62 * 0.75);
-    fh = fw / 0.75;
+    fh = Math.min(availH, (W * 0.62) / 0.75);
+    fw = fh * 0.75;
   } else {
-    fw = fh = Math.min(W * 0.78, H * 0.56);
+    fw = fh = Math.min(W * 0.78, availH);
   }
-  return { x: (W - fw) / 2, y: (H - fh) / 2, w: fw, h: fh };
+  return { x: x0 + (W - fw) / 2, y: y0 + (availH - fh) / 2, w: fw, h: fh };
 }
+// Short landscape screens (a phone on its side): controls move to the left and right edges.
+const SIDE = '(orientation: landscape) and (max-height: 520px)';
 
 /**
  * Opens the camera. Resolves with { blob, shape } (a JPEG of just the framed area), { skip: true } if the
@@ -72,19 +78,24 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     shotIn.addEventListener('change', onFile(shotIn));
 
     const shutter = el('button', { type: 'button', class: 'cam-shutter', 'aria-label': 'Take picture', onclick: () => take() });
+    const topEl = el('div', { class: 'cam-top' }, el('div', { class: 'cam-title' }, title), el('div', { class: 'cam-shapes' }, shapeBtns));
+    const zoomRow = el('div', { class: 'cam-zoomrow' }, el('span', {}, '1×'), zoom, el('span', {}, '4×'));
+    let controls;
     const bar = el('div', { class: 'cam-bar' },
-      el('div', { class: 'cam-top' }, el('div', { class: 'cam-title' }, title,
-        allowSkip ? el('button', { type: 'button', class: 'link-btn cam-skip', onclick: () => finish({ skip: true }) }, 'Skip for now') : null),
-        el('div', { class: 'cam-shapes' }, shapeBtns)),
-      el('div', { class: 'cam-zoomrow' }, el('span', {}, '1×'), zoom, el('span', {}, '4×')),
-      el('div', { class: 'cam-bottom' },
-        el('button', { type: 'button', class: 'btn sm', onclick: () => finish(null) }, 'Cancel'),
-        shutter,
-        el('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, 'Library')));
+      topEl,
+      controls = el('div', { class: 'cam-controls' },
+        zoomRow,
+        el('div', { class: 'cam-bottom' },
+          el('button', { type: 'button', class: 'btn sm', onclick: () => finish(null) }, 'Cancel'),
+          shutter,
+          el('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, 'Library')),
+        allowSkip ? el('button', { type: 'button', class: 'link-btn cam-skip', onclick: () => finish({ skip: true }) }, 'Add without a photo') : null));
     dlg.append(stage, bar, fileIn, shotIn);
     document.body.append(dlg);
     dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
     dlg.showModal();
+    stage.tabIndex = -1;
+    stage.focus({ preventScroll: true });   // no button starts highlighted
 
     function media() { return still || video; }
     function natural() {
@@ -97,12 +108,23 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       shapeBtns.forEach((b) => b.classList.toggle('active', b.dataset.v === v));
       layout();
     }
+    /** Guide position for the current shape, fitted between the top and bottom controls. */
+    function fit() {
+      const sr = stage.getBoundingClientRect();
+      if (matchMedia(SIDE).matches) {
+        const x0 = topEl.getBoundingClientRect().right - sr.left + 12;
+        const x1 = controls.getBoundingClientRect().left - sr.left - 12;
+        return frameRect(cur, x0, x1, 12, sr.height - 4);
+      }
+      const y0 = topEl.getBoundingClientRect().bottom - sr.top + 14;
+      const y1 = zoomRow.getBoundingClientRect().top - sr.top - 8;
+      return frameRect(cur, 0, sr.width, y0, y1);
+    }
     function layout() {
-      const W = stage.clientWidth, H = stage.clientHeight;
-      const f = frameRect(cur, W, H);
+      const f = fit();
       Object.assign(frame.style, { left: f.x + 'px', top: f.y + 'px', width: f.w + 'px', height: f.h + 'px' });
       frame.className = 'cam-frame ' + cur;
-      hint.style.top = Math.min(H - 40, f.y + f.h + 14) + 'px';
+      hint.style.top = (f.y + f.h + 8) + 'px';
       clampPan(); apply();
     }
     function apply() { media().style.transform = `translate(${tx}px, ${ty}px) scale(${z})`; }
@@ -173,6 +195,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       const [vw, vh] = natural();
       if (!vw || !vh) { toast('The camera isn’t ready yet'); return; }
       const W = stage.clientWidth, H = stage.clientHeight;
+      const f = fit();
       // Where the (untransformed) picture sits: object-fit: cover, centred.
       const s0 = Math.max(W / vw, H / vh);
       const left = (W - vw * s0) / 2, top = (H - vh * s0) / 2;
@@ -181,7 +204,6 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
         const qx = W / 2 + (px - tx - W / 2) / z, qy = H / 2 + (py - ty - H / 2) / z;
         return [(qx - left) / s0, (qy - top) / s0];
       };
-      const f = frameRect(cur, W, H);
       const [sx, sy] = toSrc(f.x, f.y);
       const [ex, ey] = toSrc(f.x + f.w, f.y + f.h);
       const [ow, oh] = OUT[cur];
@@ -201,14 +223,14 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     // Film-style analysis: the frame freezes, a scan line sweeps the watch, words read off the dial flicker up.
     async function runScan(blob) {
       if (!still) video.pause();
-      const f = frameRect(cur, stage.clientWidth, stage.clientHeight);
+      const f = fit();
       const words = el('div', { class: 'scan-words' });
       const status = el('div', { class: 'scan-status' }, 'ANALYSING DIAL');
       const pct = el('div', { class: 'scan-pct' }, '00%');
       const box = el('div', { class: 'scan-box ' + cur, style: `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px` },
         el('div', { class: 'scan-grid' }), el('div', { class: 'scan-line' }),
         el('i', { class: 'scan-c tl' }), el('i', { class: 'scan-c tr' }), el('i', { class: 'scan-c bl' }), el('i', { class: 'scan-c br' }));
-      const hud = el('div', { class: 'scan-hud', style: `top:${Math.min(stage.clientHeight - 150, f.y + f.h + 16)}px` }, el('div', { class: 'scan-row' }, status, pct), words);
+      const hud = el('div', { class: 'scan-hud', style: `top:${Math.min(stage.clientHeight - 130, f.y + f.h + 8)}px` }, el('div', { class: 'scan-row' }, status, pct), words);
       const layer = el('div', { class: 'scan-layer' }, box, hud);
       stage.append(layer);
       hint.hidden = true;
