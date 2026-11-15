@@ -3,6 +3,7 @@
 // Also works with a photo from the library: drag and pinch (or use the zoom slider) to line it up.
 import { el, toast } from './ui.js';
 import * as store from './store.js';
+import { findDial } from './dialfind.js';
 
 export const SHAPES = [
   ['circle', 'Circle'],
@@ -44,6 +45,9 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     let still = null;               // <img> when using a library photo or the native camera
     let z = 1, tx = 0, ty = 0;      // zoom and pan of the picture behind the guide
     let done = false;
+    let snap = null;                // { x, y, r, t } dial found on screen (Circle guide only)
+    let cutout = false;             // library photo with a transparent background (iPhone "lift subject")
+    let busy = false;               // preview or scan showing
 
     const dlg = el('dialog', { class: 'cam' });
     const stage = el('div', { class: 'cam-stage' });
@@ -52,12 +56,14 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     const frame = el('div', { class: 'cam-frame' });
     const hint = el('div', { class: 'cam-hint' }, 'Fill the shape with the watch head — dial and bezel');
     const msg = el('div', { class: 'cam-msg', hidden: true });
-    stage.append(video, frame, hint, msg);
+    const ring = el('div', { class: 'cam-snap', hidden: true }, el('span', {}, 'Dial found'));
+    stage.append(video, frame, ring, hint, msg);
 
-    const shapeBtns = SHAPES.map(([v, lab]) => {
+    const shapeBtns = [...SHAPES, ['cutout', 'Cut-out']].map(([v, lab]) => {
       const b = el('button', { type: 'button', class: 'cam-shape' + (v === cur ? ' active' : ''), 'aria-label': lab, onclick: () => setShape(v) },
         el('i', { class: 'cam-ico ' + v }), el('span', {}, lab));
       b.dataset.v = v;
+      if (v === 'cutout') b.hidden = true;     // only offered for a photo that's already cut out
       return b;
     });
     // Vertical zoom slider (drag up to zoom in) — sits under the thumb in every layout.
@@ -122,7 +128,7 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     document.body.append(dlg);
     dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
     dlg.showModal();
-    setHand(); setZoomUI();
+    setHand(); setZoomUI(); setHint();
     stage.tabIndex = -1;
     stage.focus({ preventScroll: true });   // no button starts highlighted
 
@@ -135,7 +141,16 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
     function setShape(v) {
       cur = v;
       shapeBtns.forEach((b) => b.classList.toggle('active', b.dataset.v === v));
+      stage.classList.toggle('cutout', v === 'cutout');
+      snap = null; ring.hidden = true;
+      setHint();
       layout();
+    }
+    function setHint() {
+      hint.textContent = cur === 'cutout' ? 'Cut-out photo — the watch keeps its own outline'
+        : still ? 'Drag and pinch to fit the watch head in the shape'
+          : cur === 'circle' ? 'Fill the circle with the watch head — it snaps to the dial when found'
+            : 'Fill the shape with the watch head — dial and bezel';
     }
     /** Guide position for the current shape, fitted between the top and bottom controls. */
     function fit() {
@@ -195,8 +210,23 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       stage.prepend(img);
       msg.hidden = true;
       z = 1; tx = 0; ty = 0; setZoomUI();
-      hint.textContent = 'Drag and pinch to fit the watch head in the shape';
-      layout();
+      cutout = hasTransparency(img);
+      const cb = shapeBtns.find((b) => b.dataset.v === 'cutout');
+      cb.hidden = !cutout;
+      if (cutout) setShape('cutout');
+      else { if (cur === 'cutout') setShape('circle'); setHint(); layout(); }
+    }
+    /** True for a picture whose background has been removed (transparent pixels round the edges). */
+    function hasTransparency(img) {
+      try {
+        const c = document.createElement('canvas'); c.width = c.height = 48;
+        const g = c.getContext('2d', { willReadFrequently: true });
+        g.drawImage(img, 0, 0, 48, 48);
+        const d = g.getImageData(0, 0, 48, 48).data;
+        let clear = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] < 200) clear++;
+        return clear > 48 * 48 * 0.05;
+      } catch (e) { return false; }
     }
 
     function stopStream() { if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } }
@@ -223,11 +253,10 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
           el('button', { type: 'button', class: 'btn', onclick: () => fileIn.click() }, 'Choose from library')));
     }
 
-    function take() {
+    /** Draws the part of the picture under a screen rectangle into a new canvas (ow × oh). */
+    function grab(rect, ow, oh, fill = true) {
       const [vw, vh] = natural();
-      if (!vw || !vh) { toast('The camera isn’t ready yet'); return; }
       const W = stage.clientWidth, H = stage.clientHeight;
-      const f = fit();
       // Where the (untransformed) picture sits: object-fit: cover, centred.
       const s0 = Math.max(W / vw, H / vh);
       const left = (W - vw * s0) / 2, top = (H - vh * s0) / 2;
@@ -236,24 +265,83 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
         const qx = W / 2 + (px - tx - W / 2) / z, qy = H / 2 + (py - ty - H / 2) / z;
         return [(qx - left) / s0, (qy - top) / s0];
       };
-      const [sx, sy] = toSrc(f.x, f.y);
-      const [ex, ey] = toSrc(f.x + f.w, f.y + f.h);
-      const [ow, oh] = OUT[cur];
+      const [sx, sy] = toSrc(rect.x, rect.y);
+      const [ex, ey] = toSrc(rect.x + rect.w, rect.y + rect.h);
       const c = document.createElement('canvas');
       c.width = ow; c.height = oh;
-      const g = c.getContext('2d');
-      g.fillStyle = '#000'; g.fillRect(0, 0, ow, oh);
+      const g = c.getContext('2d', { willReadFrequently: true });
+      if (fill) { g.fillStyle = '#000'; g.fillRect(0, 0, ow, oh); }
       g.drawImage(media(), sx, sy, ex - sx, ey - sy, 0, 0, ow, oh);
+      return c;
+    }
+    const toBlob = (c, type) => new Promise((res) => c.toBlob(res, type, 0.9));
+
+    // Live dial finding (Circle guide): look in and around the guide a few times a second.
+    const LOOK = 160;
+    function lookForDial() {
+      if (done || busy || cur !== 'circle') { ring.hidden = true; return; }
+      const [vw, vh] = natural();
+      if (!vw || !vh) return;
+      const f = fit();
+      const side = f.w * 1.3;
+      const area = { x: f.x + f.w / 2 - side / 2, y: f.y + f.h / 2 - side / 2, w: side, h: side };
+      let found = null;
+      try { found = findDial(grab(area, LOOK, LOOK).getContext('2d').getImageData(0, 0, LOOK, LOOK)); } catch (e) { found = null; }
+      if (!found) { if (!snap || Date.now() - snap.t > 900) { snap = null; ring.hidden = true; } return; }
+      const k = side / LOOK;
+      const nx = area.x + found.cx * k, ny = area.y + found.cy * k, nr = found.r * k * 1.02;   // a hair outside the case edge
+      // Smooth so the ring doesn't jitter.
+      snap = snap ? { x: snap.x * 0.5 + nx * 0.5, y: snap.y * 0.5 + ny * 0.5, r: snap.r * 0.5 + nr * 0.5, t: Date.now() } : { x: nx, y: ny, r: nr, t: Date.now() };
+      Object.assign(ring.style, { left: snap.x - snap.r + 'px', top: snap.y - snap.r + 'px', width: snap.r * 2 + 'px', height: snap.r * 2 + 'px' });
+      ring.hidden = false;
+    }
+    const looker = setInterval(lookForDial, 320);
+
+    /** A transparent-background picture: trim to the watch's own outline (max 900 px), kept as PNG. */
+    async function cutoutBlob() {
+      const img = still;
+      const sc = Math.min(1, 900 / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * sc), h = Math.round(img.naturalHeight * sc);
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      g.drawImage(img, 0, 0, w, h);
+      const d = g.getImageData(0, 0, w, h).data;
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 16) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 < 0) return null;
+      const pad = Math.round(Math.max(x1 - x0, y1 - y0) * 0.03);
+      x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(w - 1, x1 + pad); y1 = Math.min(h - 1, y1 + pad);
+      const o = document.createElement('canvas'); o.width = x1 - x0 + 1; o.height = y1 - y0 + 1;
+      o.getContext('2d').drawImage(c, x0, y0, o.width, o.height, 0, 0, o.width, o.height);
+      return toBlob(o, 'image/png');
+    }
+
+    async function take() {
+      const [vw, vh] = natural();
+      if (!vw || !vh) { toast('The camera isn’t ready yet'); return; }
       shutter.disabled = true;
+      busy = true;
       dlg.classList.add('flash');
-      c.toBlob((blob) => {
-        if (!blob) { shutter.disabled = false; toast('Could not take the picture'); return; }
-        if (scan) runScan(blob); else preview(blob);
-      }, 'image/jpeg', 0.9);
+      const type = cutout ? 'image/png' : 'image/jpeg';     // keep transparency from a cut-out photo
+      let main, alt = null;
+      if (cur === 'cutout') main = { blob: await cutoutBlob(), shape: 'cutout' };
+      else {
+        const [ow, oh] = OUT[cur];
+        const mine = { blob: await toBlob(grab(fit(), ow, oh, !cutout), type), shape: cur, how: 'guide' };
+        if (cur === 'circle' && snap && Date.now() - snap.t < 1200) {
+          const sq = { x: snap.x - snap.r, y: snap.y - snap.r, w: snap.r * 2, h: snap.r * 2 };
+          main = { blob: await toBlob(grab(sq, ow, oh, !cutout), type), shape: cur, how: 'snap' };
+          alt = mine;
+        } else main = mine;
+      }
+      if (!main.blob) { shutter.disabled = false; busy = false; toast('Could not take the picture'); return; }
+      if (scan) runScan(main, alt); else preview(main, alt);
     }
 
     // Film-style analysis: the frame freezes, a scan line sweeps the watch, words read off the dial flicker up.
-    async function runScan(blob) {
+    async function runScan(main, alt) {
+      const blob = main.blob;
+      ring.hidden = true;
       if (!still) video.pause();
       const f = fit();
       const words = el('div', { class: 'scan-words' });
@@ -293,11 +381,19 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
       await new Promise((res) => setTimeout(res, 650));
       layer.remove(); hint.hidden = false;
       dlg.classList.remove('scanning', 'scan-done');
-      preview(blob, result);
+      preview(main, alt, result);
     }
 
-    function preview(blob, result = null) {
-      const url = URL.createObjectURL(blob);
+    function preview(main, alt = null, result = null) {
+      let pick = main;
+      const faceBox = el('div', { class: 'cam-pv-wrap' });
+      let url = null;
+      const drawFace = () => {
+        if (url) URL.revokeObjectURL(url);
+        url = URL.createObjectURL(pick.blob);
+        faceBox.replaceChildren(el('div', { class: 'face face-' + pick.shape + ' cam-pv-face' }, el('img', { src: url, alt: 'Face picture' })));
+      };
+      drawFace();
       let info = null;
       if (result) {
         info = result.found?.length
@@ -305,22 +401,31 @@ export function captureFace({ shape, title = 'Face picture', allowSkip = false, 
             result.found.map(([k, v]) => el('div', { class: 'scan-chip' }, el('span', {}, k), el('b', {}, v))))
           : el('p', { class: 'muted' }, result.error ? `${result.error} You can fill in the details next.` : 'No writing could be read on the dial — you can choose the brand next.');
       }
+      const swap = alt ? el('button', { type: 'button', class: 'link-btn cam-swap', onclick: () => {
+        [pick, alt] = [alt, pick];
+        swap.textContent = pick.how === 'snap' ? 'Use my framing instead' : 'Use the snapped dial';
+        note.textContent = pick.how === 'snap' ? '✓ Snapped to the dial' : 'Your framing';
+        drawFace();
+      } }, 'Use my framing instead') : null;
+      const note = el('div', { class: 'cam-pv-note' }, main.how === 'snap' ? '✓ Snapped to the dial' : main.shape === 'cutout' ? '✓ Cut out from the photo' : '');
+      const close = () => { if (url) URL.revokeObjectURL(url); };
       const pv = el('div', { class: 'cam-preview' },
-        el('div', { class: 'face face-' + cur + ' cam-pv-face' }, el('img', { src: url, alt: 'Face picture' })),
+        faceBox, note, swap,
         info || el('p', { class: 'muted' }, 'Is the whole watch head in the picture?'),
         el('div', { class: 'cam-msg-btns' },
-          el('button', { type: 'button', class: 'btn', onclick: () => { URL.revokeObjectURL(url); pv.remove(); shutter.disabled = false; dlg.classList.remove('flash'); if (!still) video.play().catch(() => {}); } }, 'Retake'),
-          el('button', { type: 'button', class: 'btn primary', onclick: () => { URL.revokeObjectURL(url); finish({ blob, shape: cur, scan: result }); } }, result ? 'Continue' : 'Use picture')));
+          el('button', { type: 'button', class: 'btn', onclick: () => { close(); pv.remove(); busy = false; shutter.disabled = false; dlg.classList.remove('flash'); if (!still) video.play().catch(() => {}); } }, 'Retake'),
+          el('button', { type: 'button', class: 'btn primary', onclick: () => { close(); finish({ blob: pick.blob, shape: pick.shape, scan: result }); } }, result ? 'Continue' : 'Use picture')));
       dlg.append(pv);
     }
 
     function finish(result) {
       if (done) return;
       done = true;
+      clearInterval(looker);
       stopStream();
       if (still) URL.revokeObjectURL(still.src);
       window.removeEventListener('resize', layout);
-      if (result && result.shape) { data.faceShape = result.shape; store.save(); }
+      if (result && result.shape && result.shape !== 'cutout') { data.faceShape = result.shape; store.save(); }
       dlg.close();
       dlg.remove();
       resolve(result);

@@ -43,21 +43,22 @@ function loadImage(blob) {
   });
 }
 
-function resize(img, max, quality) {
+function resize(img, max, quality, type = 'image/jpeg') {
   const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
   const w = Math.max(1, Math.round(img.naturalWidth * scale));
   const h = Math.max(1, Math.round(img.naturalHeight * scale));
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   c.getContext('2d').drawImage(img, 0, 0, w, h);
-  return new Promise((resolve) => c.toBlob((b) => resolve(b), 'image/jpeg', quality));
+  return new Promise((resolve) => c.toBlob((b) => resolve(b), type, quality));
 }
 
 /** Shrinks a picked photo and saves it. Returns the new photo id. */
 export async function addPhoto(file) {
   const img = await loadImage(file);
-  const full = await resize(img, FULL_PX, 0.82);
-  const thumb = await resize(img, THUMB_PX, 0.78);
+  const type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';   // PNG keeps a cut-out's transparent background
+  const full = await resize(img, FULL_PX, 0.82, type);
+  const thumb = await resize(img, THUMB_PX, 0.78, type);
   const id = 'p' + uid();
   await tx('readwrite', (st) => st.put({ id, full, thumb, added: Date.now() }));
   return id;
@@ -125,7 +126,7 @@ export async function importPhotos(map) {
     try {
       const full = await dataUrlToBlob(dataUrl);
       const img = await loadImage(full);
-      const thumb = await resize(img, THUMB_PX, 0.78);
+      const thumb = await resize(img, THUMB_PX, 0.78, full.type === 'image/png' ? 'image/png' : 'image/jpeg');
       forget(id);
       await tx('readwrite', (st) => st.put({ id, full, thumb, added: Date.now() }));
       n++;
