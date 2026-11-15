@@ -1,7 +1,7 @@
 // Clock tab: big synced time display, sync status line, wake lock.
 import { clock, now, sync, onSyncChange, isFresh } from './time.js';
 import { pad, fmtAgo, toast } from './ui.js';
-import { tickCountdown, initCountdown } from './countdown.js';
+import { tickCountdown } from './countdown.js';
 
 const $ = (id) => document.getElementById(id);
 let rafId = null;
@@ -21,31 +21,6 @@ function frame() {
   if (dateKey !== lastDateKey) { lastDateKey = dateKey; renderDate(d); }
   tickCountdown();
   rafId = requestAnimationFrame(frame);
-}
-
-/* ---------- Fit the big digits to whatever screen we're on ---------- */
-// Measures the real rendered width (the phone's own font) and sizes the
-// seconds display to fill the space without ever spilling past the edge.
-let fitQueued = false;
-function fitClock() {
-  fitQueued = false;
-  const box = document.querySelector('.clock');
-  const big = $('clk-big');
-  if (!box || !big || !box.clientWidth) return;
-  const avail = box.clientWidth;
-  big.style.fontSize = '100px';
-  const w100 = big.scrollWidth || 1;              // width of "SS.mmm" at 100px
-  const byWidth = (avail * 0.97 / w100) * 100;
-  const vh = window.innerHeight || 800;
-  const byHeight = vh * (avail > 700 ? 0.34 : 0.26);  // keep room for everything else on short screens
-  const size = Math.max(40, Math.min(byWidth, byHeight, 260));
-  big.style.fontSize = size.toFixed(1) + 'px';
-  $('clk-hm').style.fontSize = Math.max(32, size * 0.46).toFixed(1) + 'px';
-}
-export function queueFit() {
-  if (fitQueued) return;
-  fitQueued = true;
-  requestAnimationFrame(fitClock);
 }
 
 function renderDate(d) {
@@ -123,17 +98,12 @@ export function initClock() {
     if (active && document.visibilityState === 'visible') requestWake();
   });
   renderStatus();
-  window.addEventListener('resize', queueFit);
-  window.addEventListener('orientationchange', () => setTimeout(queueFit, 150));
-  if ('ResizeObserver' in window) new ResizeObserver(queueFit).observe(document.querySelector('.clock'));
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(queueFit);
 }
 
 export function showClock() {
   active = true;
   lastHm = lastS = lastDateKey = '';
   if (!rafId) rafId = requestAnimationFrame(frame);
-  queueFit();
   requestWake();
   renderStatus();
 }

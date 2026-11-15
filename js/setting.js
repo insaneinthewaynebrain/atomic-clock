@@ -31,9 +31,19 @@ function dateZoneBox(big = false) {
 function updateClockZone() {
   const n = $('clock-zone');
   if (!n) return;
-  const z = inDangerZone();
+  const t = now();
+  const z = inDangerZone(t);
   n.hidden = !z;
-  n.textContent = z ? '⚠️ 21:00–03:00: don’t change the date now' : '';
+  if (!z) return;
+  const end = new Date(t); if (end.getHours() >= 21) end.setDate(end.getDate() + 1); end.setHours(3, 0, 0, 0);
+  const mins = Math.ceil((end - t) / 60000);
+  const left = mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
+  n.innerHTML = '';
+  n.append(
+    el('div', { class: 'zone-head' }, el('span', { class: 'zone-icon' }, '⚠️'), el('span', {}, 'Don’t change the date now')),
+    el('p', {}, el('b', {}, 'You could damage your watch. '), `Safe again at 03:00 (in ${left}). Setting the time is fine.`),
+    el('details', { class: 'zone-why' }, el('summary', {}, 'Why?'),
+      el('p', {}, 'Between 21:00 and 03:00 the date-change mechanism in many watches is already engaged, and using the quick-set date can strain or break it. Always check your watch’s manual.')));
 }
 
 function renderZone() {
@@ -179,8 +189,8 @@ export function register({ registerTool }) {
   registerTool({ id: 'moon', title: 'Moon phase', icon: '🌔', desc: 'Set your moonphase', panel: 'moon', show: renderMoon, order: 20 });
   registerTool({ id: 'gmt', title: 'GMT helper', icon: '🌐', desc: 'Where the GMT hand points', panel: 'gmt', show: renderGmt, hide: () => clearInterval(gmtTimer), order: 30 });
   // Danger-zone warning on the Clock tab (only shown 21:00–03:00).
-  const after = document.getElementById('clk-tz');
-  if (after && !$('clock-zone')) after.after(el('div', { id: 'clock-zone', class: 'clock-zone', hidden: true }));
+  const slot = document.getElementById('zone-slot');
+  if (slot && !$('clock-zone')) slot.append(el('div', { id: 'clock-zone', class: 'zone-box', role: 'alert', hidden: true }));
   updateClockZone();
   setInterval(updateClockZone, 30000);
 }

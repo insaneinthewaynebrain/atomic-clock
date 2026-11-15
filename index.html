@@ -33,10 +33,14 @@
           <div id="sync-detail" class="sync-detail"></div>
 
           <div class="clock" aria-label="Current time">
-            <div class="clk-hm" id="clk-hm">--:--</div>
-            <div class="clk-big" id="clk-big"><span id="clk-s">--</span><span class="clk-ms" id="clk-ms">.---</span></div>
+            <div class="now-row">
+              <span class="now-label">Time now</span>
+              <span class="clk-now"><span id="clk-hm">--:--</span>:<span id="clk-s">--</span><span class="clk-ms" id="clk-ms">.---</span></span>
+            </div>
             <div class="clk-date" id="clk-date"></div>
             <div class="clk-tz" id="clk-tz"></div>
+            <div id="zone-slot"></div>
+            <div id="countdown-slot"></div>
             <div class="clk-wake" id="clk-wake"></div>
           </div>
         </div>
