@@ -34,7 +34,7 @@ A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouT
   off, power-reserve countdown with "Wound", recent wears, log a past wear). This replaces the old
   Collection and Wrist tabs (old `#wrist` links open the Watch Box).
 - **Tools**: set to the minute (countdown with beeps), date-change danger zone, moon phase, GMT helper,
-  experimental microphone timegrapher, insurance list (PDF) and CSV export, world clock, weather,
+  experimental microphone timegrapher (any Watch Box watch, or a "visiting watch" such as a friend's, with its own beat rate), insurance list (PDF) and CSV export, world clock, weather,
   currency, backup & settings, and About.
 - **Alarm & timers** (in Tools): 5 saved alarm banks, each with an optional sunrise wake light
   (screen glows red → orange → warm white before the alarm) and a set time or the real local sunrise;
@@ -46,8 +46,9 @@ A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouT
   work offline. Alarms also show and speak wake-up words to match the tone, with quotes from the internet.
 
 It's a static site with no build step, no backend, no API keys and no tracking. All data stays on the
-user's own phone (localStorage, with photos in IndexedDB). There's a JSON backup and restore, with
-photos optional.
+user's own phone (localStorage, with photos in IndexedDB). There's one-file backup and restore of everything
+(photos included), and the app keeps a safety copy of the data before each update, which can be rolled back in
+Backup & settings.
 
 ## Data sources (free, keyless, CORS-enabled)
 - Dial reading: Tesseract.js OCR runs on the phone (engine and English data downloaded once from jsDelivr); pictures never leave the device
