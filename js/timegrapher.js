@@ -5,8 +5,58 @@
 import * as store from './store.js';
 import { el, toast, signed } from './ui.js';
 import { ownedWatches, getWatch, detailExtras } from './collection.js';
+import { openModal, confirmModal } from './ui.js';
 
 const STD_BPH = [18000, 19800, 21600, 25200, 28800, 36000];
+
+/* ---------- Visiting watches: timed here but not in the Watch Box (e.g. a friend's) ---------- */
+const visitors = () => (store.get().visitors ||= []);
+/** A Watch Box watch or a visiting watch, by id. */
+const tgWatch = (id) => getWatch(id) || visitors().find((v) => v.id === id) || null;
+const watchLabel = (w) => (w.visiting ? `${w.name}${w.owner ? ` (${w.owner})` : ''}` : w.name);
+/** <option>s for every watch you can time, grouped, with "Add a visiting watch…" at the end. */
+function watchOptions(selected) {
+  const owned = ownedWatches(), vis = visitors();
+  return [
+    owned.length ? el('optgroup', { label: 'Watch Box' }, owned.map((w) => el('option', { value: w.id, selected: w.id === selected }, w.name))) : null,
+    vis.length ? el('optgroup', { label: 'Visiting watches' }, vis.map((w) => el('option', { value: w.id, selected: w.id === selected }, w.name))) : null,
+    el('option', { value: '__visit' }, '＋ Add a visiting watch…'),
+  ];
+}
+
+function addVisitor(onDone) {
+  const nameIn = el('input', { class: 'input', type: 'text', placeholder: 'e.g. Tom’s Speedmaster', autocapitalize: 'words' });
+  const ownerIn = el('input', { class: 'input', type: 'text', placeholder: 'Whose is it? (optional)', autocapitalize: 'words' });
+  const bphSel = el('select', { class: 'input' }, el('option', { value: '' }, 'Not sure — detect it'),
+    STD_BPH.map((b) => el('option', { value: String(b) }, `${b.toLocaleString('en-GB')} bph`)), el('option', { value: 'other' }, 'Other…'));
+  const otherIn = el('input', { class: 'input', type: 'text', inputmode: 'numeric', placeholder: 'Beats per hour, e.g. 14400', hidden: true });
+  bphSel.addEventListener('change', () => { otherIn.hidden = bphSel.value !== 'other'; if (!otherIn.hidden) otherIn.focus(); });
+  let made = null;
+  openModal({
+    title: 'Add a visiting watch',
+    content: [el('p', { class: 'muted small' }, 'For timing a watch that isn’t in your Watch Box — a friend’s, or one you’re thinking of buying. Its results are kept here, separate from your collection.'),
+      el('label', { class: 'field' }, el('span', {}, 'Name'), nameIn), el('label', { class: 'field' }, el('span', {}, 'Owner'), ownerIn),
+      el('label', { class: 'field' }, el('span', {}, 'Beat rate'), bphSel, otherIn)],
+    actions: [{ label: 'Cancel' }, { label: 'Add', kind: 'primary', onClick: () => {
+      const name = nameIn.value.trim();
+      if (!name) { toast('Give it a name'); nameIn.focus(); return false; }
+      const bph = bphSel.value === 'other' ? Math.round(Number(otherIn.value.replace(/[^\d.]/g, ''))) : Number(bphSel.value) || null;
+      if (bphSel.value === 'other' && !(bph >= 3600 && bph <= 72000)) { toast('Beat rate should be between 3,600 and 72,000'); otherIn.focus(); return false; }
+      made = { id: 'v' + store.uid(), visiting: true, name, owner: ownerIn.value.trim() || null, bph, added: Date.now(), timegrapher: [] };
+      visitors().push(made); store.save();
+    } }],
+    onClose: () => onDone(made),
+  });
+  setTimeout(() => nameIn.focus(), 60);
+}
+
+/** Puts a beat rate into the picker, adding a custom option if it isn't a standard one. */
+function setBph(sel, bph) {
+  if (!bph) return;
+  const v = String(bph);
+  if (![...sel.options].some((o) => o.value === v)) sel.append(el('option', { value: v }, `${Number(bph).toLocaleString('en-GB')} bph`));
+  bphChoice = v; sel.value = v;
+}
 const WINDOW_S = 20;          // per-band tick history (used to choose the band)
 const LIVE_WINDOW_S = 60;     // live numbers use the last minute
 const MIN_S = 6;              // need at least this much before showing a result
@@ -415,7 +465,7 @@ function finishMeasurement() {
   const all = runTicks.filter((t) => t >= listenFrom + 1);
   const r = (bph && analyse(all, bph)) || lastResult;
   if (r) lastResult = r;
-  const w = getWatch($('tg-watch')?.value);
+  const w = tgWatch($('tg-watch')?.value);
   finalInfo = {
     r, at: Date.now(), watchId: w ? w.id : '', bph, seconds: Math.round(Math.min(elapsed, MEASURE_S)),
     beats: runTicks.length, signal: selectInfo, baseline: !!baseline, ticks: all, saved: false,
@@ -673,7 +723,7 @@ function renderResult() {
   if (!box || !finalInfo) return;
   box.innerHTML = '';
   const { r } = finalInfo;
-  const w = getWatch(finalInfo.watchId);
+  const w = tgWatch(finalInfo.watchId);
   const when = new Date(finalInfo.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   const again = el('button', { type: 'button', class: 'btn', onclick: startMeasurement }, '↻ Measure again');
   const done = el('button', { type: 'button', class: 'btn primary', onclick: closeStage }, 'Done');
@@ -696,9 +746,9 @@ function renderResult() {
   const card = (lbl, val, note, d, c = '') => el('div', { class: 'tg-r-card tg-in', style: `--d:${d}` },
     el('div', { class: 'tg-l-lbl' }, lbl), el('div', { class: 'tg-r-val ' + c }, val), note ? el('div', { class: 'tg-r-note' }, note) : null);
   const beVal = el('span', {}, '0.0');
-  const watchSel = el('select', { class: 'input', 'aria-label': 'Save to watch' },
-    ownedWatches().length ? ownedWatches().map((x) => el('option', { value: x.id, selected: x.id === finalInfo.watchId }, x.name)) : el('option', { value: '' }, 'No watches yet'));
-  const saveBtn = el('button', { type: 'button', class: 'btn primary', disabled: finalInfo.saved || !ownedWatches().length, onclick: () => {
+  const watchSel = el('select', { class: 'input', 'aria-label': 'Save to watch' }, watchOptions(finalInfo.watchId));
+  watchSel.addEventListener('change', () => { if (watchSel.value === '__visit') addVisitor((v) => { watchSel.replaceChildren(...watchOptions(v ? v.id : finalInfo.watchId).filter(Boolean)); }); });
+  const saveBtn = el('button', { type: 'button', class: 'btn primary', disabled: finalInfo.saved, onclick: () => {
     if (saveResult(watchSel.value)) { finalInfo.saved = true; saveBtn.textContent = 'Saved ✓'; saveBtn.disabled = true; }
   } }, finalInfo.saved ? 'Saved ✓' : 'Save to watch');
   const graph = el('canvas', { class: 'tg-r-canvas', 'aria-label': 'Beat timing trace for the whole measurement' });
@@ -865,7 +915,7 @@ function renderLast() {
 function saveResult(watchId) {
   const r = finalInfo?.r;
   if (!r) return false;
-  const w = getWatch(watchId);
+  const w = tgWatch(watchId);
   if (!w) { toast('Choose a watch first'); return false; }
   (w.timegrapher ||= []).push({ t: finalInfo.at, rate: Math.round(r.rate * 10) / 10, beatError: Math.round(r.beatError * 10) / 10, bph: r.bph, confidence: r.confidence, seconds: finalInfo.seconds });
   store.save(); store.emit('watches');
@@ -873,14 +923,38 @@ function saveResult(watchId) {
   return true;
 }
 
+function visitorBar(w) {
+  return el('div', { class: 'tg-visitor' },
+    el('div', { class: 'muted small' }, `Visiting watch${w.owner ? ` · ${w.owner}’s` : ''}${w.bph ? ` · ${Number(w.bph).toLocaleString('en-GB')} bph` : ''} — not in your Watch Box`),
+    el('div', { class: 'tg-visitor-btns' },
+      el('button', { type: 'button', class: 'btn sm', onclick: () => moveToBox(w) }, 'Move to Watch Box'),
+      el('button', { type: 'button', class: 'btn sm danger', onclick: async () => {
+        if (!(await confirmModal(`Remove ${w.name}?`, 'Its timegrapher results are removed too.', 'Remove', true))) return;
+        store.get().visitors = visitors().filter((x) => x !== w); store.save(); render();
+      } }, 'Remove')));
+}
+
+function moveToBox(v) {
+  const d = store.get();
+  const w = { id: store.uid(), name: v.name, bph: v.bph, status: 'owned', added: Date.now(), runs: [], photos: [], timegrapher: v.timegrapher || [],
+    notes: v.owner ? `Timed as ${v.owner}’s watch before it joined the Watch Box.` : null };
+  d.watches.push(w);
+  d.visitors = visitors().filter((x) => x !== v);
+  d.selectedWatchId = w.id;
+  store.save(); store.emit('watches');
+  toast(`${v.name} is now in your Watch Box`);
+  render();
+}
+
 function renderHistory() {
   const box = $('tg-history');
   if (!box) return;
   box.innerHTML = '';
-  const w = getWatch($('tg-watch')?.value);
+  const w = tgWatch($('tg-watch')?.value);
   const list = (w?.timegrapher || []).slice().reverse();
+  if (w?.visiting) box.append(visitorBar(w));
   if (!list.length) return;
-  box.append(el('h3', { class: 'sub-title' }, `Saved results — ${w.name}`),
+  box.append(el('h3', { class: 'sub-title' }, `Saved results — ${watchLabel(w)}`),
     el('div', { class: 'hist' }, list.map((x) => el('div', { class: 'hist-row' },
       el('div', { class: 'hist-main' },
         el('div', { class: 'hist-when' }, new Date(x.t).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })),
@@ -892,18 +966,24 @@ function renderHistory() {
 function render() {
   const box = $('tool-timegrapher-body');
   box.innerHTML = '';
-  const owned = ownedWatches();
   const d = store.get();
+  const chosen = d.tgWatchId && tgWatch(d.tgWatchId) ? d.tgWatchId : d.selectedWatchId;
+  let prev = chosen;
   const watchSel = el('select', { id: 'tg-watch', class: 'input', 'aria-label': 'Watch', onchange: (e) => {
-    const w = getWatch(e.target.value);
-    if (w && w.bph && STD_BPH.includes(Number(w.bph))) { bphChoice = String(w.bph); bphSel.value = bphChoice; }
+    if (e.target.value === '__visit') {
+      addVisitor((v) => { if (v) { d.tgWatchId = v.id; store.save(); render(); } else e.target.value = prev; });
+      return;
+    }
+    prev = e.target.value; d.tgWatchId = prev; store.save();
+    const w = tgWatch(prev);
+    if (w && w.bph) setBph(bphSel, w.bph);
     renderHistory();
-  } }, owned.length ? owned.map((w) => el('option', { value: w.id, selected: w.id === d.selectedWatchId }, w.name)) : el('option', { value: '' }, 'No watches yet'));
+  } }, watchOptions(chosen));
   const bphSel = el('select', { class: 'input', 'aria-label': 'Beats per hour', onchange: (e) => { bphChoice = e.target.value; } },
     el('option', { value: 'auto' }, 'Beat rate: auto'), STD_BPH.map((b) => el('option', { value: String(b) }, `${b.toLocaleString('en-GB')} bph`)));
-  const cur = getWatch(d.selectedWatchId);
-  if (cur && cur.bph && STD_BPH.includes(Number(cur.bph))) bphChoice = String(cur.bph);
-  bphSel.value = bphChoice;
+  const cur = tgWatch(chosen);
+  bphSel.value = STD_BPH.includes(Number(bphChoice)) ? bphChoice : 'auto';
+  if (cur && cur.bph) setBph(bphSel, cur.bph);
 
   box.append(
     el('div', { class: 'card tg-card' },
