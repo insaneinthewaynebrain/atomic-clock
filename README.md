@@ -24,7 +24,10 @@ A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouT
   both sides, clasp, serial and reference close-ups, scale, wrist, marks, box, papers, receipt, valuation), an
   insurance PDF (all its details and photos, with a "not an official insurance document" disclaimer) and a memory
   book PDF (face picture, its story and legacy note, details without the serial, insurance photos and galleries —
-  more galleries plug in through `memoryGalleries` in `js/watchdocs.js`). Plus wishlist and sold/traded, more photos, values and a summary. What's on your wrist, service/warranty/battery reminders and
+  more galleries plug in through `memoryGalleries` in `js/watchdocs.js`). Galleries on each watch: wrist shots, favourite moments,
+  marks & blemishes (with notes), general and lume; photos are taken in the app or picked from the library, and keep
+  when and where they were taken (from the photo's own EXIF data, or the current time and location). Photos are
+  copied into the app, as a web app can't link to the Photos library. Plus wishlist and sold/traded, more photos, values and a summary. What's on your wrist, service/warranty/battery reminders and
   a wear calendar with stats sit at the top; each watch's own page has its wrist panel (wear now / taken
   off, power-reserve countdown with "Wound", recent wears, log a past wear). This replaces the old
   Collection and Wrist tabs (old `#wrist` links open the Watch Box).

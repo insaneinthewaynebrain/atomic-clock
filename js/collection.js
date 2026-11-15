@@ -367,9 +367,9 @@ export function openWatchEditor(watch, opts = {}) {
   });
 }
 
-/** Every stored photo a watch owns: face picture, gallery photos, insurance photos. */
+/** Every stored photo a watch owns: face picture, more photos, insurance photos, gallery photos. */
 export function allPhotoIds(w) {
-  return [...new Set([w.face, ...(w.photos || []), ...Object.values(w.insPhotos || {})].filter(Boolean))];
+  return [...new Set([w.face, ...(w.photos || []), ...Object.values(w.insPhotos || {}), ...Object.values(w.galleries || {}).flat().map((p) => p.id)].filter(Boolean))];
 }
 
 export async function removeWatch(w) {

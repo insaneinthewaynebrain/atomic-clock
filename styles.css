@@ -1353,3 +1353,24 @@ dialog.cam.side .cam-toggles { flex-direction: column; }
 .ins-replace { font-size: 12px; padding: 0; align-self: flex-start; }
 .doc-btns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 @media (min-width: 560px) { .ins-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+/* Galleries */
+.gal-sec { margin-top: 14px; }
+.gal-list { display: flex; flex-direction: column; gap: 6px; }
+.gal-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto 14px; gap: 10px; align-items: center; text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; color: var(--text); }
+.gal-icon { font-size: 20px; text-align: center; }
+.gal-name { font-weight: 700; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gal-name .muted { font-weight: 400; }
+.gal-strip { display: flex; gap: 3px; }
+.gal-strip img { width: 34px; height: 34px; border-radius: 6px; object-fit: cover; }
+.gal-chev { color: var(--muted); font-size: 20px; }
+.gal-add { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 8px 0 12px; }
+.gal-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.gal-grid .empty-note { grid-column: 1 / -1; }
+.gal-cell { position: relative; padding: 0; border: 0; background: none; aspect-ratio: 1; border-radius: 8px; overflow: hidden; }
+.gal-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gal-date { position: absolute; left: 4px; bottom: 4px; font-size: 10px; background: rgba(0,0,0,.65); color: #fff; padding: 1px 5px; border-radius: 99px; }
+.gal-note-dot { position: absolute; right: 4px; top: 4px; font-size: 11px; background: var(--amber); color: #000; border-radius: 99px; padding: 0 5px; }
+.gal-meta { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 14px; }
+@media (min-width: 560px) { .gal-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+textarea.input { font: inherit; }

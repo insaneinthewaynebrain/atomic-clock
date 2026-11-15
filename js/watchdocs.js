@@ -31,7 +31,7 @@ export const INS_SLOTS = [
   ['valuation', 'Valuation', 'A recent appraisal, if you have one', false],
 ];
 
-/** Other features can add photo galleries to the memory book: { title, photos(w) → ids, notes?(w) → text }. */
+/** Other features can add photo galleries to the memory book: { title, photos(w) → ids, captions?(w) → texts, notes?(w) → text }. */
 export const memoryGalleries = [];
 
 const d = () => store.get();
@@ -210,8 +210,9 @@ export async function memoryBook(w, onClose = null) {
     const ids = (g.photos(w) || []).filter(Boolean);
     const note = g.notes ? g.notes(w) : '';
     if (!ids.length && !note) continue;
+    const caps = g.captions ? g.captions(w) : [];
     const figs = [];
-    for (const id of ids) { const src = await photoDataUrl(id, 'full'); if (src) figs.push(`<figure><img src="${src}" alt=""></figure>`); }
+    for (const [i, id] of ids.entries()) { const src = await photoDataUrl(id, 'full'); if (src) figs.push(`<figure><img src="${src}" alt="">${caps[i] ? `<figcaption>${esc(caps[i])}</figcaption>` : ''}</figure>`); }
     galleries += `<h2>${esc(g.title)}</h2>${note ? `<p class="notes">${esc(note)}</p>` : ''}${figs.length ? `<div class="grid">${figs.join('')}</div>` : ''}`;
   }
   const body = `
