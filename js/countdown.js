@@ -47,6 +47,10 @@ function pip(atAudioTime, long) {
 
 function soundReady() { return audio && audio.state === 'running'; }
 
+/** Shared with the alarm: the unlocked audio context (or null until the first touch). */
+export function getAudio() { return soundReady() ? audio : null; }
+export { unlockAudio };
+
 /* ---------- Colours ---------- */
 const GREEN = [34, 197, 94], AMBER = [251, 191, 36], RED = [239, 68, 68];
 const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
