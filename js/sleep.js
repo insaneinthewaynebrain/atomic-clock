@@ -164,9 +164,10 @@ export function endSleep({ show = true } = {}) {
   if (!cur) return null;
   s.current = null;
   const end = Date.now();
-  if (end - cur.start < 10 * 60000) { store.save(); return null; }   // under 10 minutes: not a night
   const sum = summarise(cur, end);
-  s.history = [sum, ...(s.history || [])].slice(0, 30);
+  // Under 10 minutes is a test, not a night: show it, but keep it out of the history.
+  if (end - cur.start < 10 * 60000) sum.short = true;
+  else s.history = [sum, ...(s.history || [])].slice(0, 30);
   store.save();
   if (show) showSummary(sum);
   return sum;
@@ -192,6 +193,7 @@ function timeline(sum) {
 export function summaryBody(sum) {
   const inBed = sum.end - sum.start, asleep = sum.end - sum.onset;
   const rows = [
+    sum.short ? el('div', { class: 'notice small' }, `A short test (${dur(inBed)}) — not saved to your sleep history.`) : null,
     el('div', { class: 'sl-big' }, el('div', { class: 'sl-num' }, dur(sum.listen ? asleep : inBed)), el('div', { class: 'muted small' }, sum.listen ? 'estimated sleep' : 'sleep time (bedtime to alarm)')),
     el('p', { class: 'small center' }, `Bedtime ${hhmm(sum.start)} → woke ${hhmm(sum.end)} · in bed ${dur(inBed)}`,
       sum.listen && sum.onset > sum.start + 60000 ? ` · probably asleep from about ${hhmm(sum.onset)}` : ''),
