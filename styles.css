@@ -1019,3 +1019,21 @@ body.tg-stage-open { overflow: hidden; }
 .pk-explain { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
 .pk-explain b { color: var(--text); }
 .pk-end { display: flex; justify-content: space-between; gap: 10px; margin-top: 14px; }
+
+/* Big, easy steppers for the medication settings */
+.stepper-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.stepper-q { min-width: 0; flex: 1; }
+.stepper-label { font-size: 16px; font-weight: 700; }
+.stepper-help { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
+.stepper { display: grid; grid-template-columns: 48px minmax(84px, auto) 48px; align-items: center; gap: 6px; flex: none; }
+.step-btn { width: 48px; height: 48px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); font-size: 26px; font-weight: 700; line-height: 1; padding: 0; color: var(--accent); }
+.step-btn:active { transform: scale(.94); }
+.stepper-val { text-align: center; font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stepper-group { margin-top: 16px; padding: 12px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); }
+.stepper-group .stepper-row { margin-top: 10px; }
+.stepper-group .stepper-row:first-of-type { margin-top: 8px; }
+.stepper-title { font-size: 16px; font-weight: 700; }
+.stepper-group > .stepper-help { margin-top: 10px; }
+.packet .pk-explain { font-size: 14px; margin-top: 12px; }
+.med-star { font-size: 13px; color: var(--muted); margin: 8px 0 0; text-align: center; }
+@media (max-width: 360px) { .stepper { grid-template-columns: 44px minmax(72px, auto) 44px; } .step-btn { width: 44px; height: 44px; } }

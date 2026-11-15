@@ -11,8 +11,6 @@ import { ringAlert, toneField } from './ring.js';
 
 const MAX_MEDS = 20;
 const MIN = 60000, H = 60 * MIN, DAY = 24 * H;
-const FOOD = [['any', 'Not stated'], ['with', 'With or after food'], ['empty', 'On an empty stomach']];
-const FOOD_TAG = { with: '🍽️ Take with or after food', empty: '🚫🍽️ Take on an empty stomach' };
 
 const hhmm = (t) => { const x = new Date(t); return `${pad(x.getHours())}:${pad(x.getMinutes())}`; };
 function when(t) {
@@ -28,6 +26,7 @@ function countdown(ms) {
   const s = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(s / 3600)}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
+const fmtH = (h) => String(Math.round(h * 10) / 10);
 const hrs = (h) => `${Math.round(h * 10) / 10} hour${h === 1 ? '' : 's'}`;
 const num = (v, lo, hi, dflt) => { const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt; };
 
@@ -148,7 +147,7 @@ export function checkMeds(meds, changed) {
     m.rang = true; store.save(); changed();
     ringAlert({
       icon: '💊', title: m.name || 'Medication',
-      label: [`Time for your next dose${m.dose ? ` (${m.dose})` : ''} — if you need it.`, FOOD_TAG[m.food]].filter(Boolean).join(' · '),
+      label: `Time for your next dose${m.dose ? ` (${m.dose})` : ''} — if you need it. Remember to check the packet, e.g. whether to take it with food.`,
       sound: m.sound,
       buttons: [{ label: 'Not now' }, { label: 'I’ve taken it', kind: 'primary', fn: () => setTimeout(() => takeNow(m, changed), 200) }],
     });
@@ -242,29 +241,43 @@ function planLine(m, s) {
   return el('div', { class: 'plan-line' }, taken, todo);
 }
 
+const openSettings = new Set();   // which settings panels are open (kept while the screen redraws)
+
+/** A big − value + control: easy to tap, nothing to type. */
+function stepper(label, value, { min, max, step = 1, show, help }, onChange) {
+  const out = el('div', { class: 'stepper-val', 'aria-live': 'polite' }, show(value));
+  const go = (d) => { const v = Math.max(min, Math.min(max, Math.round((value + d) * 2) / 2)); if (v === value) return; value = v; out.textContent = show(v); onChange(v); };
+  return el('div', { class: 'stepper-row' },
+    el('div', { class: 'stepper-q' }, el('div', { class: 'stepper-label' }, label), help ? el('div', { class: 'stepper-help' }, help) : null),
+    el('div', { class: 'stepper' },
+      el('button', { type: 'button', class: 'step-btn', 'aria-label': `Less: ${label}`, onclick: () => go(-step) }, '−'),
+      out,
+      el('button', { type: 'button', class: 'step-btn', 'aria-label': `More: ${label}`, onclick: () => go(step) }, '+')));
+}
+
 function settings(m, rerender) {
-  const set = (k, lo, hi, dflt) => (e) => { m[k] = num(e.target.value, lo, hi, dflt); tidy(m); schedule(m); store.save(); rerender(); };
-  const g = dayGap(m);
-  const setUp = !m.name || !m.log.length;
-  return el('details', { class: 'packet', open: setUp },
-    el('summary', {}, '⚙️ Settings from the packet'),
+  const changed = () => { tidy(m); schedule(m); store.save(); openSettings.add(m.id); rerender(); };
+  const explainText = () => `With your day, that’s about one dose every ${span(dayGap(m))}.`;
+  const explain = el('b', {}, explainText());
+  const timesTxt = (n) => `${n} time${n === 1 ? '' : 's'}`;
+  const hoursTxt = (h) => `${h} hour${h === 1 ? '' : 's'}`;
+  const det = el('details', { class: 'packet', open: !m.name || !m.log.length || openSettings.has(m.id), ontoggle: () => { if (det.open) openSettings.add(m.id); else openSettings.delete(m.id); } },
+    el('summary', {}, '⚙️ What the packet says'),
+    stepper('How many times a day, at most?', m.perDay, { min: 1, max: 12, show: timesTxt, help: 'Look for “no more than … doses in 24 hours”.' }, (v) => { m.perDay = v; changed(); }),
+    el('div', { class: 'stepper-group' },
+      el('div', { class: 'stepper-title' }, 'How long to wait between doses?'),
+      stepper('At least', m.minGap, { min: 1, max: 48, show: hoursTxt }, (v) => {
+        m.minGap = v; if (m.maxGap && m.maxGap <= v) { m.maxGap = v + 1; maxBox.replaceWith(maxBox = maxStepper()); }
+        changed();
+      }),
+      (maxBox = maxStepper()),
+      el('p', { class: 'stepper-help' }, 'If the packet says “every 4 to 6 hours”, set 4 and 6. If it gives only one number, leave “At most” as “Not given”.')),
+    el('p', { class: 'pk-explain' }, explain),
     el('label', { class: 'field' }, el('span', {}, 'How much is one dose? (optional)'),
-      el('input', { type: 'text', class: 'input', value: m.dose || '', placeholder: 'e.g. 2 tablets (adult)', onchange: (e) => { m.dose = e.target.value.trim(); store.save(); rerender(); } })),
-    el('div', { class: 'pk-q' }, el('span', {}, 'Most doses allowed in 24 hours'),
-      el('input', { type: 'number', inputmode: 'numeric', min: 1, max: 12, step: 1, class: 'input num-in', value: m.perDay, onchange: set('perDay', 1, 12, 4) })),
-    el('div', { class: 'pk-q' }, el('span', {}, 'Wait at least … hours between doses'),
-      el('input', { type: 'number', inputmode: 'decimal', min: 0.5, max: 48, step: 0.5, class: 'input num-in', value: m.minGap, onchange: set('minGap', 0.5, 48, 4) })),
-    el('div', { class: 'pk-q' }, el('span', {}, 'Packet says “up to” … hours? (optional)'),
-      el('input', { type: 'number', inputmode: 'decimal', min: 0, max: 48, step: 0.5, class: 'input num-in', value: m.maxGap || '', placeholder: '—', onchange: set('maxGap', 0, 48, 0) })),
-    el('p', { class: 'pk-explain' }, `For example “1–2 tablets every 4 to 6 hours, no more than 4 doses in 24 hours” → 4, 4 and 6. `,
-      el('b', {}, `With your day, that works out at about one dose every ${span(g)}.`)),
+      el('input', { type: 'text', class: 'input', value: m.dose || '', placeholder: 'e.g. 2 tablets', onchange: (e) => { m.dose = e.target.value.trim(); store.save(); rerender(); } })),
     el('label', { class: 'field' }, el('span', {}, 'Remind me'), el('select', { class: 'input', onchange: (e) => { m.remind = e.target.value; schedule(m); store.save(); } },
-      [['best', 'At the best time (spread through the day)'], ['soonest', 'As soon as the next dose is allowed']].map(([v, l]) => el('option', { value: v, selected: m.remind === v }, l)))),
+      [['best', 'At the best time'], ['soonest', 'As soon as I’m allowed another dose']].map(([v, l]) => el('option', { value: v, selected: m.remind === v }, l)))),
     toneField(m.sound, (v) => { m.sound = v; store.save(); }, 'Reminder sound'),
-    el('label', { class: 'field' }, el('span', {}, 'Food'), el('select', { class: 'input', onchange: (e) => { m.food = e.target.value; store.save(); rerender(); } },
-      FOOD.map(([v, l]) => el('option', { value: v, selected: m.food === v }, l)))),
-    el('label', { class: 'field' }, el('span', {}, 'Expiry date (EXP on the box) — optional'),
-      el('input', { type: 'month', class: 'input', value: m.expiry || '', onchange: (e) => { m.expiry = e.target.value; store.save(); rerender(); } })),
     el('div', { class: 'pk-end' },
       el('button', { type: 'button', class: 'btn sm', disabled: !m.log.length, onclick: async () => {
         if (!(await confirmModal('Clear the dose history?', 'Starts this medicine afresh. Its settings are kept.', 'Clear', true))) return;
@@ -274,6 +287,18 @@ function settings(m, rerender) {
         if (!(await confirmModal(`Delete ${m.name || 'this medicine'}?`, '', 'Delete', true))) return;
         const list = store.get().timers.meds; list.splice(list.indexOf(m), 1); store.save(); rerender();
       } }, 'Delete')));
+  var maxBox;
+  function maxStepper() {
+    // 0 means "not given"; going up from there starts at the "at least" time + 1 hour.
+    return stepper('At most', m.maxGap || 0, { min: 0, max: 48, show: (h) => (h ? hoursTxt(h) : 'Not given') }, (raw) => {
+      const prev = m.maxGap || 0;
+      let v = raw;
+      if (v > 0 && v <= m.minGap) v = raw > prev ? m.minGap + 1 : 0;   // must be longer than "at least"
+      m.maxGap = v; changed();
+      if (v !== raw) maxBox.replaceWith(maxBox = maxStepper());
+    });
+  }
+  return det;
 }
 
 function dayCard(rerender) {
@@ -297,13 +322,13 @@ export function viewMeds(box, rerender, meds) {
       el('div', { class: 'med-head' }, el('span', { class: 'bank-no' }, String(i + 1)),
         el('input', { type: 'text', class: 'input med-name', value: m.name, placeholder: 'Name, e.g. Paracetamol', 'aria-label': 'Medicine name',
           onchange: (ev) => { m.name = ev.target.value.trim(); store.save(); } })),
-      el('div', { class: 'med-rule small muted' }, `${m.dose ? m.dose + ' · ' : ''}up to ${m.perDay} dose${m.perDay > 1 ? 's' : ''} a day · at least ${hrs(m.minGap)} apart${m.maxGap ? ` (up to ${m.maxGap})` : ''}`),
-      FOOD_TAG[m.food] ? el('div', { class: 'food-tag' }, FOOD_TAG[m.food]) : null,
+      el('div', { class: 'med-rule small muted' }, `${m.dose ? m.dose + ' · ' : ''}up to ${m.perDay} time${m.perDay > 1 ? 's' : ''} a day · ${m.maxGap ? `${fmtH(m.minGap)} to ${fmtH(m.maxGap)} hours apart` : `at least ${hrs(m.minGap)} apart`}`),
       ex ? el('div', { class: `notice ${ex.bad ? 'bad' : 'warn'} small` }, ex.text) : null,
       el('div', { class: 'med-status' }, head, big, sub),
       planLine(m, s),
       el('div', { class: 'small muted center med-count' }, `${in24(m, Date.now())} of ${m.perDay} doses in the last 24 hours`),
       el('button', { type: 'button', class: 'btn primary wide big-btn', onclick: () => takeNow(m, rerender) }, '💊 I’ve taken a dose now'),
+      el('p', { class: 'med-star' }, '* Before taking it, check the safety tips at the top — for example, whether to take it with food.'),
       el('div', { class: 'med-links' },
         el('button', { type: 'button', class: 'link-btn', onclick: () => tookEarlier(m, rerender) }, 'Took it earlier?'),
         m.log.length ? el('button', { type: 'button', class: 'link-btn', onclick: async () => {
