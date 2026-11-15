@@ -1,7 +1,7 @@
 // Service worker: keeps the app working offline.
 // Online: always fetch the latest files from the network (so updates show straight away).
 // Offline: use the copies saved here.
-const VERSION = 'v31';
+const VERSION = 'v32';
 const CACHE = 'atomic-clock-' + VERSION;
 const SHELL = [
   './', './index.html', './styles.css', './manifest.webmanifest',

@@ -161,7 +161,7 @@ function viewStopwatch(box, rerender) {
       el('div', {}, el('span', { class: 'muted small' }, 'Average'), el('b', {}, clock(avg, true))),
       el('div', {}, el('span', { class: 'muted small' }, 'Slowest'), el('b', { class: 'bad-t' }, clock(worst, true)))) : null,
     el('div', { class: 'lap-head muted small' }, el('span', {}, 'Lap'), el('span', {}, 'Lap time'), el('span', {}, 'Total')),
-    liveRow, rows) : null,
+    liveRow, rows) : '',   // '' not null: box.append would print "null"
   el('p', { class: 'muted small center' }, lapTimes.length
     ? 'Fastest lap shows green, slowest red; the small figure is the change from the lap before. Keeps running if you leave this screen or close the app.'
     : 'Tap Start, then Lap each time round — or just Start and Stop for a plain stopwatch. Keeps running if you leave this screen or close the app.'));
