@@ -4,18 +4,17 @@ import { now } from './time.js';
 import { el, pad, toast } from './ui.js';
 import { getAudio, unlockAudio, playBackup, stopBackup } from './countdown.js';
 import { playTone, RAMP, normTone, TONES } from './music.js';
-import { messagesFor, speak, stopSpeaking } from './wakewords.js';
+import { speak, stopSpeaking } from './wakewords.js';
 import * as alarmSound from './alarmsound.js';
 import { keepAwake, allowSleep, setEdge } from './keepawake.js';
 
 const GIVE_UP_MS = 10 * 60 * 1000;
 const $ = (id) => document.getElementById(id);
 let cur = null, queue = [], timer = null, player = null, wake = null, started = 0;
-let msgs = [], nextMsgAt = 0, speaking = false, backupOn = false, mode = 'trying';
-const MSG_EVERY = 18000;   // a new wake-up message about every 18 seconds
+let nextMsgAt = 0, speaking = false, backupOn = false, mode = 'trying';
 
 /**
- * opts: { icon, title, label, sound, sunlit, words: 'speak' | 'show' | 'off', say, tapAnywhere: fn, buttons: [{ label, kind, fn }], onTimeout }
+ * opts: { icon, title, label, sound, sunlit, say, tapAnywhere: fn, buttons: [{ label, kind, fn }], onTimeout }
  * `tapAnywhere`: a tap anywhere outside the buttons does this (alarms: snooze).
  * `say`: a sentence spoken over and over (between chimes) until a button is pressed.
  * The first button is the main one; every button stops the sound.
@@ -47,7 +46,6 @@ export function ringAlert(opts) {
     mode = ok ? 'element' : 'webaudio';
     beat();
   });
-  msgs = opts.words === 'speak' ? messagesFor(opts.sound) : [];
   nextMsgAt = Date.now() + 2500;
   speaking = false;
   beat();
@@ -56,16 +54,6 @@ export function ringAlert(opts) {
 
 const toneOf = (o) => (o.sound === 'chime' ? 'chime' : normTone(o.sound));
 
-function nextMessage() {
-  if (!msgs.length) return;
-  const m = msgs.shift(); msgs.push(m);
-  if (cur.words === 'speak') {
-    speaking = true;
-    player?.setVolume(0.12);
-    const mine = cur;
-    speak(m, cur.sound).then(() => { if (cur === mine) speaking = false; });
-  }
-}
 
 export const isRinging = () => !!cur;
 
@@ -76,7 +64,6 @@ function beat() {
   const tone = toneOf(cur);
   const [v0, v1, secs] = RAMP[tone];
   const vol = Math.min(v1, v0 + ((Date.now() - started) / 1000 / secs) * (v1 - v0));
-  if (msgs.length && Date.now() >= nextMsgAt) { nextMsgAt = Date.now() + MSG_EVERY; nextMessage(); }
   if (cur.say && !speaking && Date.now() >= nextMsgAt) {
     nextMsgAt = Date.now() + 8000;           // once per chime cycle
     speaking = true;
@@ -110,7 +97,7 @@ function finish(fn) {
   player?.stop(); player = null;
   stopBackup(); backupOn = false;
   alarmSound.stop(); mode = 'trying';
-  stopSpeaking(); msgs = []; speaking = false;
+  stopSpeaking(); speaking = false;
   $('alarm-ring')?.remove();
   allowSleep('ring'); setEdge('ring', null);
   cur = null;

@@ -15,15 +15,13 @@ import * as timers from './timers.js';
 import * as sleep from './sleep.js';
 import { keepAwake, allowSleep, setEdge } from './keepawake.js';
 import { showMorning } from './morning.js';
-import { refreshQuotes, primeSpeech } from './wakewords.js';
+import { refreshQuotes } from './wakewords.js';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];   // index 0 = Monday
 const BANKS = 5;
 const SNOOZE_MIN = 9;
 const CATCH_UP_MS = 2 * 60 * 1000;        // ring if the app was reopened within 2 min of the time
 const LIGHT_MINS = [10, 15, 20, 30, 45, 60];
-const WORDS = [['speak', 'Spoken and shown on screen'], ['show', 'Shown on screen only'], ['off', 'Off — music only']];
-const WORD_HINT = { soft: 'calm, yoga-style affirmations', medium: 'an upbeat pep talk for the work day', harsh: 'a drill sergeant telling you to get up' };
 const OFFSETS = [-60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60];
 const VIEWS = [['alarms', '⏰', 'Alarms'], ['timer', '⏳', 'Timer'], ['stopwatch', '⏱️', 'Stopwatch'],
   ['eggs', '🥚', 'Egg timer'], ['meds', '💊', 'Medication']];
@@ -138,7 +136,7 @@ function ring(a, at) {
     icon: a.mode === 'sunrise' ? '🌅' : '⏰',
     title: a.label || `Alarm ${a.bank >= 0 ? a.bank + 1 : ''}`.trim(),
     label: a.mode === 'sunrise' ? 'Good morning — the sun is up' : null,
-    sound: a.sound, sunlit: !!a.light, words: a.words || 'speak',
+    sound: a.sound, sunlit: !!a.light,
     tapAnywhere: () => done(true), tapLabel: `Tap anywhere to snooze for ${SNOOZE_MIN} minutes`,
     buttons: [{ label: `Snooze ${SNOOZE_MIN} min`, fn: () => done(true) }, { label: 'Stop', kind: 'primary', fn: () => done(false) }],
     onTimeout: () => done(false),
@@ -234,7 +232,7 @@ function previewSunrise() {
 
 /* ---------- Bedside mode ---------- */
 function bedtime() {
-  unlockAudio(); primeSpeech();
+  unlockAudio();
   const listen = el('input', { type: 'checkbox', class: 'check', checked: d().sleepListen !== false });
   const n = nextAlarm();
   openModal({
@@ -373,7 +371,6 @@ function editAlarm(bank, a, saved) {
     draft.sound = tone.select.value;
     draft.light = lightOn.checked;
     draft.lightMin = Number(lightSel.value);
-    draft.words = wordsSel.value;
     return draft;
   };
   const updSun = () => {
@@ -445,11 +442,7 @@ function editAlarm(bank, a, saved) {
   });
   timeIn.addEventListener('change', updOnce);
   updOnce();
-  const tone = toneField(draft.sound, () => updWords());
-  const wordsSel = el('select', { class: 'input' }, WORDS.map(([v, l]) => el('option', { value: v, selected: (draft.words || 'speak') === v }, l)));
-  const wordsHint = el('p', { class: 'muted small' });
-  const updWords = () => { wordsHint.textContent = `With the ${tone.select.selectedOptions[0].text.split(' — ')[0]} tone: ${WORD_HINT[tone.select.value]}, plus matching quotes when online.`; };
-  updWords();
+  const tone = toneField(draft.sound);
   const lightOn = el('input', { type: 'checkbox', class: 'switch', checked: !!draft.light, onchange: updSun });
   const lightSel = el('select', { class: 'input', onchange: updSun }, LIGHT_MINS.map((m) => el('option', { value: m, selected: draft.lightMin === m }, `Starts ${m} min before the alarm`)));
   updSun();
@@ -469,7 +462,6 @@ function editAlarm(bank, a, saved) {
       el('div', { class: 'field' }, el('span', {}, 'How often'), el('div', { class: 'seg' }, repBtns), dayBox, onceHint),
       el('label', { class: 'field' }, el('span', {}, 'Label'), labelIn),
       tone,
-      el('label', { class: 'field' }, el('span', {}, 'Wake-up words'), wordsSel), wordsHint,
     ],
     actions: [
       ...(isNew ? [] : [{ label: 'Clear', kind: 'danger', onClick: () => { setTimeout(async () => {
@@ -484,7 +476,7 @@ function editAlarm(bank, a, saved) {
         const out = { ...draft, bank, enabled: true, snoozeAt: null, snoozed: false, lightSkip: null };
         let target = a;
         if (isNew) { target = { id: store.uid(), ...out }; alarms().push(target); } else Object.assign(a, out);
-        store.save(); unlockAudio(); primeSpeech(); render(); updateClockLine();
+        store.save(); unlockAudio(); render(); updateClockLine();
         const n = nextRing(target);
         if (n) toast(`Alarm in ${inText(n - now())}`);
         else if (draft.mode === 'sunrise') toast('No sunrise in the next week there');
@@ -561,11 +553,11 @@ function renderAlarms(box) {
 }
 
 function testAlarm() {
-  unlockAudio(); primeSpeech();
+  unlockAudio();
   const a = alarms().find((x) => x.enabled) || alarms()[0];
   toast('Test alarm in 10 seconds — leave the app open', 4000);
   setTimeout(() => ringAlert({
-    icon: '🔔', title: 'Test alarm', sound: a?.sound || 'soft', words: a?.words || 'speak',
+    icon: '🔔', title: 'Test alarm', sound: a?.sound || 'soft',
     label: 'If you can hear this, your alarms will sound while the app is open. Check the volume buttons if it’s quiet.',
     buttons: [{ label: 'Stop', kind: 'primary' }],
   }), 10000);

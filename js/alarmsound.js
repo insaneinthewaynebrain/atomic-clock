@@ -2,7 +2,7 @@
 // Each tone is recorded on the phone when the app starts (music.js renderTone).
 // To be allowed to play later without a tap, the element is "unlocked" once during a tap by playing a
 // short SILENT clip — never an alarm tone, so nothing is ever heard when you tap around the app.
-import { renderTone } from './music.js';
+import { renderTone, TONES_VERSION } from './music.js';
 
 const TONES = ['soft', 'medium', 'harsh', 'chime'];
 const urls = {};         // tone -> blob URL of the recorded loop
@@ -21,13 +21,30 @@ function silentUrl() {
 }
 const SILENT = silentUrl();
 
-/** Record all the tones (once). Safe to call many times. */
+/**
+ Record all the tones (once). The recordings are kept on the phone (Cache Storage), so after the first
+ time — which can take 20 seconds or so for the richer tones — they load instantly. Safe to call many times.
+*/
+const CACHE = 'alarm-tones';
+const keyFor = (t) => `./alarm-tones/v${TONES_VERSION}/${t}.wav`;
 export function prepare() {
   if (preparing) return preparing;
   preparing = (async () => {
+    let cache = null;
+    try { cache = await caches.open(CACHE); } catch (e) { /* private mode etc. */ }
     for (const t of TONES) {
-      try { urls[t] = await renderTone(t); } catch (e) { console.warn('Could not record tone', t, e); }
+      try {
+        const hit = cache && await cache.match(keyFor(t));
+        if (hit) { urls[t] = URL.createObjectURL(await hit.blob()); continue; }
+        urls[t] = await renderTone(t);
+        if (cache) {
+          const blob = await (await fetch(urls[t])).blob();
+          await cache.put(keyFor(t), new Response(blob, { headers: { 'Content-Type': 'audio/wav' } }));
+        }
+      } catch (e) { console.warn('Could not record tone', t, e); }
     }
+    // Tidy away recordings from older versions of the music.
+    if (cache) for (const req of await cache.keys()) if (!req.url.includes(`/v${TONES_VERSION}/`)) cache.delete(req);
   })();
   return preparing;
 }
