@@ -21,7 +21,7 @@ import * as watchdocs from './watchdocs.js';
 import * as galleries from './galleries.js';
 import * as watchlife from './watchlife.js';
 
-export const APP_VERSION = '61';
+export const APP_VERSION = '62';
 
 // Feature modules that register their own tabs/tools.
 const EXTRA_MODULES = [wrist, watchlife, galleries, watchdocs, setting, insurance, timegrapher, alarm];

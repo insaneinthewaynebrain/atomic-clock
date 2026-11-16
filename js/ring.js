@@ -6,6 +6,7 @@ import { getAudio, unlockAudio, playBackup, stopBackup } from './countdown.js';
 import { playTone, RAMP, normTone, TONES } from './music.js';
 import { messagesFor, speak, stopSpeaking } from './wakewords.js';
 import * as alarmSound from './alarmsound.js';
+import { keepAwake, allowSleep, setEdge } from './keepawake.js';
 
 const GIVE_UP_MS = 10 * 60 * 1000;
 const $ = (id) => document.getElementById(id);
@@ -14,7 +15,8 @@ let msgs = [], nextMsgAt = 0, speaking = false, backupOn = false, mode = 'trying
 const MSG_EVERY = 18000;   // a new wake-up message about every 18 seconds
 
 /**
- * opts: { icon, title, label, sound, sunlit, words: 'speak' | 'show' | 'off', say, buttons: [{ label, kind, fn }], onTimeout }
+ * opts: { icon, title, label, sound, sunlit, words: 'speak' | 'show' | 'off', say, tapAnywhere: fn, buttons: [{ label, kind, fn }], onTimeout }
+ * `tapAnywhere`: a tap anywhere outside the buttons does this (alarms: snooze).
  * `say`: a sentence spoken over and over (between chimes) until a button is pressed.
  * The first button is the main one; every button stops the sound.
  */
@@ -23,17 +25,19 @@ export function ringAlert(opts) {
   stopPreview();
   cur = opts;
   started = Date.now();
-  const overlay = el('div', { id: 'alarm-ring', class: 'alarm-ring' + (opts.sunlit ? ' sunlit' : ''), role: 'alertdialog', 'aria-label': opts.title || 'Alarm' },
+  const overlay = el('div', { id: 'alarm-ring', class: 'alarm-ring' + (opts.sunlit ? ' sunlit' : ''), role: 'alertdialog', 'aria-label': opts.title || 'Alarm',
+    onclick: (e) => { if (opts.tapAnywhere && !e.target.closest('button')) finish(opts.tapAnywhere); } },
     el('div', { class: 'ar-sound', id: 'ar-sound' }, 'Sound: starting…'),
     el('div', { class: 'ar-icon' }, opts.icon || '⏰'),
     el('div', { class: 'ar-time', id: 'ar-time' }, ''),
     el('div', { class: 'ar-label' }, opts.title || 'Alarm'),
     opts.label ? el('div', { class: 'ar-sub' }, opts.label) : null,
-    opts.words && opts.words !== 'off' ? el('div', { class: 'ar-msg', id: 'ar-msg', 'aria-live': 'polite' }) : null,
+    opts.tapAnywhere ? el('div', { class: 'ar-tap' }, opts.tapLabel || 'Tap anywhere to snooze') : null,
     el('div', { class: 'ar-btns' + (opts.buttons.length === 1 ? ' one' : '') }, opts.buttons.map((b) =>
       el('button', { type: 'button', class: 'btn ' + (b.kind || ''), onclick: () => finish(b.fn) }, b.label))));
   document.body.append(overlay);
-  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { wake = w; }).catch(() => {});
+  keepAwake('ring');
+  setEdge('ring', opts.sunlit ? '#f3701c' : '#05070b');
   if (navigator.vibrate) try { navigator.vibrate([400, 200, 400]); } catch (e) { /* not supported */ }
   // First choice: the recorded tone through ordinary audio playback (dependable on iPhone/iPad).
   mode = 'trying';
@@ -43,7 +47,7 @@ export function ringAlert(opts) {
     mode = ok ? 'element' : 'webaudio';
     beat();
   });
-  msgs = opts.words && opts.words !== 'off' ? messagesFor(opts.sound) : [];
+  msgs = opts.words === 'speak' ? messagesFor(opts.sound) : [];
   nextMsgAt = Date.now() + 2500;
   speaking = false;
   beat();
@@ -53,14 +57,8 @@ export function ringAlert(opts) {
 const toneOf = (o) => (o.sound === 'chime' ? 'chime' : normTone(o.sound));
 
 function nextMessage() {
-  const box = $('ar-msg');
-  if (!box || !msgs.length) return;
+  if (!msgs.length) return;
   const m = msgs.shift(); msgs.push(m);
-  box.classList.remove('show');
-  box.innerHTML = '';
-  box.append(el('div', { class: 'ar-msg-text' }, `“${m.text.replace(/^[“"]|[”"]$/g, '')}”`));
-  if (m.by) box.append(el('div', { class: 'ar-msg-by' }, '— ' + m.by));
-  requestAnimationFrame(() => box.classList.add('show'));
   if (cur.words === 'speak') {
     speaking = true;
     player?.setVolume(0.12);
@@ -114,7 +112,7 @@ function finish(fn) {
   alarmSound.stop(); mode = 'trying';
   stopSpeaking(); msgs = []; speaking = false;
   $('alarm-ring')?.remove();
-  if (wake) { wake.release().catch(() => {}); wake = null; }
+  allowSleep('ring'); setEdge('ring', null);
   cur = null;
   try { fn?.(); } catch (e) { console.error(e); }
   if (queue.length) setTimeout(() => { if (!cur && queue.length) ringAlert(queue.shift()); }, 300);

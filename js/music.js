@@ -100,6 +100,7 @@ function soft(ctx, bus) {
   // Fmaj9 · C/E add9 · Dm9 · B♭maj9 — 8 seconds each
   const CH = [[53, 57, 60, 64, 67], [52, 55, 60, 62, 67], [50, 53, 57, 60, 64], [46, 53, 57, 60, 62]];
   const BELL = [0, null, 2, null, null, 4, null, 1, null, 3, null, null, 2, null, 4, null];
+  const BELL2 = [4, null, null, 3, null, 2, null, null, 1, null, 2, null, 4, null, null, 3];   // second minute: a different melody
   return {
     bpm: 60, div: 2,
     step(s, t, sd) {
@@ -113,7 +114,8 @@ function soft(ctx, bus) {
         seaG.gain.setTargetAtTime(0.05, t, 1.6);
         seaG.gain.setTargetAtTime(0.008, t + 4, 1.8);
       }
-      const b = BELL[i];
+      const second = Math.floor(s / 64) % 2 === 1;
+      const b = (second ? BELL2 : BELL)[i];
       if (b != null && !(ci === 3 && i > 8)) {
         const f = hz(ch[b] + 12 + (s % 32 > 15 && b === 4 ? 12 : 0));
         voice(ctx, space, { type: 'sine', f, t, dur: 0.01, vol: 0.07, a: 0.004, r: 2.4 });
@@ -266,7 +268,7 @@ export function playTone(ctx, tone, volume = 0.6) {
  Ordinary audio playback is far more dependable there, so each tone is recorded once, on the phone,
  into a short seamless loop (a WAV file in memory) that the alarm plays on repeat. */
 const TEMPO = { soft: [60, 2], medium: [116, 4], harsh: [160, 4], chime: [60, 2] };
-const LOOP = { soft: [64, 0, 0.7], medium: [128, 64, 0.85], harsh: [128, 0, 0.95], chime: [16, 0, 0.8] };   // steps, first step, peak level
+const LOOP = { soft: [128, 0, 0.7], medium: [256, 64, 0.85], harsh: [256, 0, 0.95], chime: [16, 0, 0.8] };   // soft ≈ 64 s, medium ≈ 33 s, harsh ≈ 24 s   // steps, first step, peak level
 
 export async function renderTone(tone, rate = 22050) {
   const [steps, from, peak] = LOOP[tone];

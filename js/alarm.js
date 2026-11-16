@@ -13,6 +13,8 @@ import { sunriseOn } from './sun.js';
 import { getPosition, nearestTown } from './weather.js';
 import * as timers from './timers.js';
 import * as sleep from './sleep.js';
+import { keepAwake, allowSleep, setEdge } from './keepawake.js';
+import { showMorning } from './morning.js';
 import { refreshQuotes, primeSpeech } from './wakewords.js';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];   // index 0 = Monday
@@ -29,7 +31,7 @@ const $ = (id) => document.getElementById(id);
 const d = () => store.get();
 const dow = (date) => (date.getDay() + 6) % 7;   // Monday = 0
 
-let bedside = null, bedTimer = null, bedWake = null, sun = null, panelOpen = false, liveTimer = null, liveUpdate = null;
+let bedside = null, bedTimer = null, sun = null, panelOpen = false, liveTimer = null, liveUpdate = null;
 
 /* ---------- Data ---------- */
 // Alarms live in d().alarms; each has a bank number 0–4. Older alarms are moved into free banks.
@@ -102,6 +104,7 @@ function check() {
     if (at && t >= at && t - at < CATCH_UP_MS) { ring(a, at); break; }
   }
   checkSunrise(t);
+  if (alarms().some((a) => a.enabled && a.snoozeAt && a.snoozeAt > t - CATCH_UP_MS)) keepAwake('snooze'); else allowSleep('snooze');
   updateClockLine();
 }
 
@@ -123,7 +126,9 @@ function ring(a, at) {
       if (sleep.sleeping()) sleep.startSleep(store.get().sleep.current.listen);
     } else {
       a.snoozed = false; if (!a.days?.length) a.enabled = false;
-      if (sleep.sleeping()) { stopBedside(true); sleep.endSleep(); }
+      let night = null;
+      if (sleep.sleeping()) { stopBedside(true); night = sleep.endSleep({ show: false }); }
+      showMorning({ night, tone: a.sound });
     }
     store.save();
     if (panelOpen) render();
@@ -134,6 +139,7 @@ function ring(a, at) {
     title: a.label || `Alarm ${a.bank >= 0 ? a.bank + 1 : ''}`.trim(),
     label: a.mode === 'sunrise' ? 'Good morning — the sun is up' : null,
     sound: a.sound, sunlit: !!a.light, words: a.words || 'speak',
+    tapAnywhere: () => done(true), tapLabel: `Tap anywhere to snooze for ${SNOOZE_MIN} minutes`,
     buttons: [{ label: `Snooze ${SNOOZE_MIN} min`, fn: () => done(true) }, { label: 'Stop', kind: 'primary', fn: () => done(false) }],
     onTimeout: () => done(false),
   });
@@ -178,7 +184,7 @@ function showSun({ a, at, start, end, demo }) {
       ]));
   document.body.append(box);
   sun = { a, at, start, end, demo, box, wake: null };
-  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { if (sun) sun.wake = w; else w.release(); }).catch(() => {});
+  keepAwake('sun');
   drawSun();
   if (demo) sun.timer = setInterval(() => { drawSun(); if (Date.now() > end + 6000) hideSun(); }, 250);
 }
@@ -192,6 +198,7 @@ function drawSun(force) {
   sun.box.style.setProperty('--sun-y', `${(1 - e) * 70 + 18}%`);
   sun.box.style.setProperty('--sun-glow', sunColour(Math.min(1, e * 1.15)));
   sun.box.classList.toggle('day', e > 0.62);
+  setEdge('sun', sunColour(e * 0.55));   // the strip beside the app glows with the sunrise too
   const x = $('sun-time');
   if (x) x.textContent = hhmm(now());
 }
@@ -200,7 +207,7 @@ function hideSun() {
   if (!sun) return;
   clearInterval(sun.timer);
   sun.box.remove();
-  sun.wake?.release().catch(() => {});
+  allowSleep('sun'); setEdge('sun', null);
   sun = null;
 }
 
@@ -256,7 +263,7 @@ function startBedside() {
     el('div', { class: 'bs-sleep', id: 'bs-sleep' }, ''),
     el('button', { type: 'button', class: 'bs-exit', onclick: () => stopBedside() }, 'Exit bedside mode'));
   document.body.append(bedside);
-  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then((w) => { bedWake = w; }).catch(() => {});
+  keepAwake('bedside'); setEdge('bedside', '#000');
   const draw = () => {
     $('bs-time').textContent = hhmm(now());
     const n = nextAlarm();
@@ -269,11 +276,11 @@ function startBedside() {
 async function stopBedside(quiet) {
   if (!quiet && sleep.sleeping()) {
     const end = await confirmModal('End the night?', 'Stop the sleep timer and see your summary? Choose Cancel to leave Bedside mode but keep the sleep timer running.', 'End & show summary');
-    if (end) sleep.endSleep();
+    if (end) { const night = sleep.endSleep({ show: false }); if (night) showMorning({ night, tone: nextAlarm()?.a.sound || 'soft', today: true }); }
   }
   clearInterval(bedTimer);
   bedside?.remove(); bedside = null;
-  if (bedWake) { bedWake.release().catch(() => {}); bedWake = null; }
+  allowSleep('bedside'); setEdge('bedside', null);
 }
 
 /* ---------- Clock tab line ---------- */
@@ -570,16 +577,16 @@ function nightCard() {
   if (cur) {
     return el('div', { class: 'card' }, el('h2', { class: 'card-title' }, '💤 Sleep timer running'),
       el('p', { class: 'small' }, sleep.bedsideLine()),
-      el('button', { type: 'button', class: 'btn wide', onclick: () => { sleep.endSleep(); render(); } }, 'I’m up — end the night'));
+      el('button', { type: 'button', class: 'btn wide', onclick: () => { const night = sleep.endSleep({ show: false }); render(); if (night) showMorning({ night, tone: nextAlarm()?.a.sound || 'soft' }); } }, 'I’m up — end the night'));
   }
   if (!last) return '';
   const hist = sleep.history().slice(0, 7);
   return el('div', { class: 'card' },
     el('h2', { class: 'card-title' }, '💤 Last night'),
-    el('button', { type: 'button', class: 'night-row', onclick: () => sleep.showSummary(last) },
+    el('button', { type: 'button', class: 'night-row', onclick: () => showMorning({ night: last, today: false }) },
       el('span', {}, nightText(last)), el('span', { class: 'muted' }, '›')),
     hist.length > 1 ? el('details', { class: 'night-hist' }, el('summary', { class: 'small muted' }, 'Previous nights'),
-      hist.slice(1).map((n) => el('button', { type: 'button', class: 'night-row', onclick: () => sleep.showSummary(n) }, el('span', {}, nightText(n)), el('span', { class: 'muted' }, '›')))) : null);
+      hist.slice(1).map((n) => el('button', { type: 'button', class: 'night-row', onclick: () => showMorning({ night: n, today: false }) }, el('span', {}, nightText(n)), el('span', { class: 'muted' }, '›')))) : null);
 }
 
 function nightText(n) {

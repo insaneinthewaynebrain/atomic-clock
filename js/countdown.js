@@ -27,7 +27,6 @@ function unlockAudio() {
     const b = audio.createBuffer(1, 1, 22050), s = audio.createBufferSource();
     s.buffer = b; s.connect(audio.destination); s.start(0);
   } catch (e) { /* no Web Audio */ }
-  blessBackup();
   alarmSound.prepare().then(() => {});
   alarmSound.bless();
   updateHint();
@@ -60,48 +59,9 @@ export function getAudio() {
 }
 export { unlockAudio };
 
-/* ---------- Backup alarm sound ----------
- A looping chime in an <audio> element. Playing it once (muted) during a tap "blesses" it, so the
- phone lets it play later without a tap — used if Web Audio still won't start when an alarm rings. */
-let backupEl = null, backupUrl = null;
-function chimeWav() {
-  const rate = 22050, secs = 2.4, n = Math.floor(rate * secs);
-  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
-  const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
-  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
-  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  w(36, 'data'); v.setUint32(40, n * 2, true);
-  const notes = [[0, 1318.5], [0.45, 1046.5], [1.2, 1318.5], [1.65, 1046.5]];   // ding-dong, ding-dong
-  for (let i = 0; i < n; i++) {
-    const t = i / rate;
-    let x = 0;
-    for (const [at, f] of notes) {
-      const d = t - at;
-      if (d >= 0 && d < 1.2) x += Math.sin(2 * Math.PI * f * d) * Math.exp(-d * 4) * Math.min(1, d * 400) + 0.25 * Math.sin(4 * Math.PI * f * d) * Math.exp(-d * 7);
-    }
-    v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x * 0.6)) * 32767, true);
-  }
-  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
-}
-function blessBackup() {
-  try {
-    if (!backupEl) {
-      backupUrl = chimeWav();
-      backupEl = new Audio(backupUrl); backupEl.loop = true; backupEl.setAttribute('playsinline', '');
-    }
-    if (!backupEl.paused) return;
-    backupEl.muted = true;
-    backupEl.play().then(() => { backupEl.pause(); backupEl.currentTime = 0; backupEl.muted = false; }).catch(() => { backupEl.muted = false; });
-  } catch (e) { /* ignore */ }
-}
-/** Play the backup chime; resolves true if the phone allowed it. */
-export function playBackup() {
-  if (!backupEl) return Promise.resolve(false);
-  backupEl.muted = false; backupEl.volume = 1; backupEl.currentTime = 0;
-  return backupEl.play().then(() => true).catch(() => false);
-}
-export function stopBackup() { try { backupEl?.pause(); } catch (e) { /* ignore */ } }
+/** Kept for older callers: the backup chime is gone (it could be heard when blessed). */
+export function playBackup() { return Promise.resolve(false); }
+export function stopBackup() {}
 
 // Record the alarm tones soon after the app opens (takes a second or two, no internet needed).
 setTimeout(() => alarmSound.prepare(), 1500);
