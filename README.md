@@ -41,8 +41,8 @@ A free app for watch collectors, made for viewers of the **Watch Hobbyist** YouT
   Bedside mode with a sleep timer and optional on-device listening for snoring and restless sleep
   (nothing is recorded); countdown timer, stopwatch with laps (fastest/average/slowest), egg timer, and up to 20 medication
   timers planned from the packet (most doses in 24 hours, shortest gap, optional longest gap) and your
-  wake-up and bedtime, re-planned after each dose). Every alarm and timer can use one of three tones (Soft spa, Medium pop,
-  Harsh rock), composed for this app and synthesised live with Web Audio, so they're royalty-free and
+  wake-up and bedtime, re-planned after each dose). Every alarm and timer can use one of three tones (Soft spa music, Medium classic alarm-clock beeps,
+  Harsh twin-bell alarm clock), made for this app and synthesised live with Web Audio, so they're royalty-free and
   work offline. Alarms also show and speak wake-up words to match the tone, with quotes from the internet.
 
 It's a static site with no build step, no backend, no API keys and no tracking. All data stays on the
