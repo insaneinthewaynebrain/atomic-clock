@@ -67,6 +67,7 @@ export function openGeneral() {
 function back() {
   const t = current && TOOLS.find((x) => x.id === current);
   if (t && t.group === 'general') openGeneral();
+  else if (t && t.group === 'accuracy') { goHome(); location.hash = 'clock'; }
   else goHome();
 }
 
@@ -100,7 +101,7 @@ export function openTool(id) {
   document.querySelectorAll('.tool-panel').forEach((p) => { p.hidden = p.dataset.tool !== t.panel; });
   $('tools-title').textContent = t.title;
   $('tools-back').hidden = false;
-  $('tools-back').textContent = t.group === 'general' ? '‹ General' : '‹ Tools';
+  $('tools-back').textContent = t.group === 'general' ? '‹ General' : t.group === 'accuracy' ? '‹ Accuracy' : '‹ Tools';
   window.scrollTo(0, 0);
   if (t.show) t.show();
   if (location.hash !== '#tools/' + id) history.replaceState(null, '', '#tools/' + id);

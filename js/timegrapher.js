@@ -1039,6 +1039,6 @@ function tgDetail(w) {
 }
 
 export function register({ registerTool }) {
-  registerTool({ id: 'timegrapher', title: 'Timegrapher', icon: '🎙️', desc: 'Experimental: listen to the tick', panel: 'timegrapher', show: render, hide: () => { const s = $('tg-stage'); if (s) { s.remove(); document.body.classList.remove('tg-stage-open'); } if (mode !== 'off') stop(); }, order: 70 });
+  registerTool({ id: 'timegrapher', title: 'Timegrapher', icon: '🎙️', desc: 'Experimental: listen to the tick', panel: 'timegrapher', group: 'accuracy', show: render, hide: () => { const s = $('tg-stage'); if (s) { s.remove(); document.body.classList.remove('tg-stage-open'); } if (mode !== 'off') stop(); }, order: 70 });
   detailExtras.push(tgDetail);
 }

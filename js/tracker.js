@@ -1,8 +1,11 @@
-// Watch accuracy tracker (on the Clock tab).
+// Accuracy on the Clock tab, in two parts:
+//  • Set Time (under the live clock): pick the watch, set it to the clock, tap “Set to zero”.
+//  • Accuracy Check (the card): log how far it is out, drift, trend graph, merged manual/timegrapher history.
 import * as store from './store.js';
 import { now, clock, isFresh } from './time.js';
 import { el, confirmModal, toast, signed, fmtDuration, fmtDateTime } from './ui.js';
 import { watchStats, fmtOffset, fmtRate, grade, fmtRange, POSITIONS, posLabel, positionRates, restingAdvice } from './accuracy.js';
+import { setToZero, logReading, sourceBadge, accuracyData, trendGraph, graphLegend, serviceHint, rateClass as rc, fmtSecs } from './accuracyui.js';
 import { openShareCard } from './sharecard.js';
 import { openWatchEditor, ownedWatches, addWatch as addWatchFlow } from './collection.js';
 
@@ -58,7 +61,7 @@ function mark(w, sign, secs, pos) {
 function fmtSignedSecs(o) { return o === 0 ? '0 s' : `${signed(o)} s`; }
 
 async function deleteReading(w, runId, readingId) {
-  const ok = await confirmModal('Delete this mark?', 'Rates will be recalculated without it.', 'Delete', true);
+  const ok = await confirmModal('Delete this reading?', 'Rates will be recalculated without it.', 'Delete', true);
   if (!ok) return;
   w.readings = (w.readings || []).filter((r) => r.id !== readingId);
   store.save();
@@ -92,11 +95,36 @@ function stat(label, value, sub, cls = '') {
   return el('div', { class: 'stat ' + cls }, el('div', { class: 'stat-label' }, label), el('div', { class: 'stat-value' }, value), sub ? el('div', { class: 'stat-sub' }, sub) : null);
 }
 
+let filter = 'all';      // history + graph: all | manual | timegrapher
+
+/* ---------- Set Time (under the clock) ---------- */
+function renderSetTime() {
+  const slot = document.getElementById('settime-slot');
+  if (!slot) return;
+  const owned = ownedWatches();
+  slot.innerHTML = '';
+  if (!owned.length) return;
+  const d = data();
+  const w = selected();
+  const last = (w.readings || []).filter((r) => r.setToZero).sort((a, b) => b.timestamp - a.timestamp)[0];
+  const sel = el('select', { class: 'input watch-select', 'aria-label': 'Watch to set', onchange: (e) => { d.selectedWatchId = e.target.value; store.save(); store.emit('watches'); } },
+    owned.map((x) => el('option', { value: x.id, selected: x.id === w.id }, x.name)));
+  slot.append(el('div', { class: 'settime' },
+    el('div', { class: 'eyebrow' }, 'Set Time'),
+    el('div', { class: 'settime-row' }, sel,
+      el('button', { type: 'button', class: 'btn primary settime-zero', onclick: () => setToZero(w) }, '⓪ Set to zero')),
+    el('div', { class: 'muted small' }, last
+      ? `Last set to zero ${new Date(last.timestamp).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${new Date(last.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+      : 'Set the watch to the clock above, push the crown in on zero, then tap Set to zero.')));
+}
+
+/* ---------- Accuracy Check (the card) ---------- */
 export function render() {
+  renderSetTime();
   const box = root();
   box.innerHTML = '';
   const d = data();
-  box.append(el('h2', { class: 'card-title' }, 'Watch accuracy'));
+  box.append(el('h2', { class: 'card-title' }, 'Accuracy Check'));
 
   const owned = ownedWatches();
   if (!owned.length) {
@@ -112,38 +140,46 @@ export function render() {
   // Watch picker + small manage buttons
   const sel = el('select', {
     class: 'input watch-select', 'aria-label': 'Watch',
-    onchange: (e) => { d.selectedWatchId = e.target.value; store.save(); render(); },
+    onchange: (e) => { d.selectedWatchId = e.target.value; store.save(); store.emit('watches'); },
   }, owned.map((x) => el('option', { value: x.id, selected: x.id === w.id }, x.name)));
   box.append(el('div', { class: 'watch-bar' }, sel,
     el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Add watch', title: 'Add watch', onclick: addWatch }, '+'),
-    el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Edit watch details', title: 'Edit details', onclick: () => editWatch(w) }, '✎'),
-    el('button', { type: 'button', class: 'icon-btn sm danger', 'aria-label': 'Delete watch', title: 'Delete', onclick: () => deleteWatch(w) }, '🗑')));
+    el('button', { type: 'button', class: 'icon-btn sm', 'aria-label': 'Edit watch details', title: 'Edit details', onclick: () => editWatch(w) }, '✎')));
 
-  // Mark row: [+/-] [0..60 s] [Mark]
+  // Log a reading: [+/-] [0..60 s] [Log]
   const signSel = el('select', { class: 'input mark-sign', 'aria-label': 'Plus (fast) or minus (slow)' },
-    el('option', { value: '1' }, '+'), el('option', { value: '-1' }, '\u2212'));
+    el('option', { value: '1' }, '+'), el('option', { value: '-1' }, '−'));
+  const minSel = el('select', { class: 'input mark-mins', 'aria-label': 'Minutes' },
+    Array.from({ length: 11 }, (_, i) => el('option', { value: String(i) }, `${i}m`)));
   const secSel = el('select', { class: 'input mark-secs', 'aria-label': 'Seconds' },
-    Array.from({ length: 61 }, (_, i) => el('option', { value: String(i) }, `${i} s`)));
-  const posSel = el('select', { class: 'input pos-select', 'aria-label': 'How the watch rested since the last mark' },
-    el('option', { value: '' }, 'Position since last mark (optional)'),
+    Array.from({ length: 60 }, (_, i) => el('option', { value: String(i) }, `${i}s`)));
+  const posSel = el('select', { class: 'input pos-select', 'aria-label': 'How the watch rested since the last reading' },
+    el('option', { value: '' }, 'Position since last reading (optional)'),
     POSITIONS.map(([v, lab]) => el('option', { value: v }, lab)));
   box.append(
-    el('div', { class: 'mark-row' }, signSel, secSel,
-      el('button', { type: 'button', class: 'btn primary mark-btn', onclick: () => mark(w, Number(signSel.value), Number(secSel.value), posSel.value) }, 'Mark')),
-    posSel,
-    el('p', { class: 'muted small mark-help' }, '+ = watch ahead of the clock (fast), \u2212 = behind (slow).'));
+    el('p', { class: 'muted small mark-help' }, 'How far is the watch out? + = ahead of the clock (fast), − = behind (slow).'),
+    el('div', { class: 'mark-row mark-row4' }, signSel, minSel, secSel,
+      el('button', { type: 'button', class: 'btn primary mark-btn', onclick: () => logReading(w, Number(signSel.value) * (Number(minSel.value) * 60 + Number(secSel.value)), posSel.value) }, 'Log')),
+    posSel);
 
-  const st = watchStats(w);
-  const all = st.runs.flatMap((r) => r.readings);
-  const first = st.runs.length ? st.runs[st.runs.length - 1].readings[0] : null;
+  const a = accuracyData(w);
+  const st = a.st;
   const latest = st.latest;
-  const sinceFirst = st.cur && st.cur.readings.length > 1 ? latest.offset - first.offset : null;
-
+  const first = st.cur ? st.cur.readings[0] : null;
+  const sinceZero = st.cur && st.cur.readings.length > 1 ? latest.offset - first.offset : null;
   box.append(el('div', { class: 'stats' },
-    stat('Now', latest ? fmtSignedSecs(latest.offset) : '—', latest ? fmtOffset(latest.offset) : 'no marks yet', latest ? (latest.offset >= 0 ? '' : '') : ''),
-    stat('Since last mark', fmtRate(st.lastRate), st.lastElapsed ? `${signed(latest.gain)} s in ${fmtDuration(st.lastElapsed)}` : 'needs 2 marks'),
-    stat('Average per day', fmtRate(st.overall), st.overallDays > 0 ? `over ${fmtDuration(st.overallDays * DAY)}` : 'needs 2 marks', rateClass(st.overall)),
-    stat('Total drift', sinceFirst != null ? `${fmtSignedSecs(sinceFirst)}` : '—', sinceFirst != null ? `${sinceFirst >= 0 ? 'gained' : 'lost'} since first mark (${fmtSignedSecs(first.offset)})` : 'needs 2 marks')));
+    stat('Drift per day', a.drift != null ? fmtRate(a.drift) : '—', a.drift == null ? 'needs 2 readings' : a.driftFrom === 'timegrapher' ? 'latest timegrapher' : 'since set to zero', rc(a.drift)),
+    stat('Out now', latest ? fmtSecs(latest.offset) : '—', latest ? fmtOffset(latest.offset) : 'no readings yet'),
+    stat('Since set to zero', sinceZero != null ? fmtSecs(sinceZero) : '—', sinceZero != null ? `over ${fmtDuration(st.cur.spanDays * DAY)}` : 'needs 2 readings'),
+    stat('All-time average', fmtRate(st.overall), st.overallDays > 0 ? `${st.runs.length} run${st.runs.length === 1 ? '' : 's'} · ${fmtDuration(st.overallDays * DAY)}` : 'needs 2 readings', rc(st.overall))));
+
+  // Trend graph with filters
+  const seg = el('div', { class: 'seg seg3 acc-filter', role: 'group', 'aria-label': 'Show readings' },
+    [['all', 'All'], ['manual', 'Manual'], ['timegrapher', 'Timegrapher']].map(([v, l]) =>
+      el('button', { type: 'button', class: 'seg-btn' + (filter === v ? ' active' : ''), onclick: () => { filter = v; render(); } }, l)));
+  box.append(el('h3', { class: 'sub-title' }, 'Trend · seconds per day'), seg, trendGraph(w, filter), graphLegend());
+  const hint = serviceHint(w, a);
+  if (hint) box.append(hint);
 
   box.append(gradeBlock(w, st));
   const pr = positionRates(w);
@@ -155,27 +191,32 @@ export function render() {
       adv ? el('p', { class: 'advice' }, '💡 ', adv) : null);
   }
 
-  if (st.overall != null && Math.abs(st.overall) > d.thresholds.amber) {
-    box.append(el('p', { class: 'service-note' }, `Averaging more than \u00b1${d.thresholds.amber} s/day \u2014 a service may be due.`));
-  }
+  box.append(el('button', { type: 'button', class: 'btn wide tg-open', onclick: () => { d.tgWatchId = w.id; store.save(); location.hash = 'tools/timegrapher'; } }, '🎙 Measure with the timegrapher'),
+    el('p', { class: 'muted small' }, 'Timegrapher results are added to this history automatically.'));
 
-  // Log
-  box.append(el('h3', { class: 'sub-title' }, `Log \u2014 ${w.name}`));
-  if (!all.length) { box.append(el('p', { class: 'muted small' }, 'No marks yet. Compare your watch with the big seconds above, pick + or \u2212 and the seconds, then tap Mark.')); return; }
+  // One merged history
+  const rows = (w.readings || []).filter((r) => filter === 'all' || r.source === filter).slice().sort((x, y) => y.timestamp - x.timestamp);
+  const rateOf = new Map(st.runs.flatMap((run) => run.readings).map((r) => [r.id, r]));
+  box.append(el('h3', { class: 'sub-title' }, `History — ${w.name}`));
+  if (!rows.length) { box.append(el('p', { class: 'muted small' }, filter === 'all' ? 'No readings yet. Set the watch to zero, then come back every day or so and log how far it is out.' : 'No readings of this kind yet.')); return; }
   const list = el('div', { class: 'hist' });
-  st.runs.slice().reverse().forEach((run) => {
-    run.readings.slice().reverse().forEach((r) => {
-      const rateTxt = r.rate != null
-        ? `${fmtRate(r.rate)} \u00b7 ${signed(r.gain)} s in ${fmtDuration(r.elapsedMs)}`
-        : 'first mark';
-      list.append(el('div', { class: 'hist-row' },
-        el('div', { class: 'hist-main' },
-          el('div', { class: 'hist-when' }, fmtDateTime(r.t), r.synced ? null : el('span', { class: 'unsynced', title: 'Marked without network sync' }, ' \u26a0\ufe0e')),
-          el('div', { class: 'hist-off' }, `${fmtSignedSecs(r.offset)} `, el('span', { class: 'muted small' }, fmtOffset(r.offset))),
-          el('div', { class: 'hist-rate muted small' }, rateTxt + (r.pos ? ` · ${posLabel(r.pos)}` : ''))),
-        el('button', { type: 'button', class: 'icon-btn sm danger', 'aria-label': 'Delete mark', onclick: () => deleteReading(w, run.id, r.id) }, '\u00d7')));
-    });
-  });
+  for (const r of rows.slice(0, 60)) {
+    let main, sub;
+    if (r.source === 'timegrapher') {
+      const x = r.timegrapherData;
+      main = `${fmtRate(x.rate)}`; sub = `beat error ${x.beatError} ms · ${Number(x.bph).toLocaleString('en-GB')} bph · ${x.confidence} confidence`;
+    } else {
+      const m = rateOf.get(r.id);
+      main = `${fmtSecs(r.offsetSeconds)} `; sub = r.setToZero ? 'new baseline' : m && m.rate != null ? `${fmtRate(m.rate)} · ${signed(m.gain)} s in ${fmtDuration(m.elapsedMs)}` : '';
+      if (r.position) sub += ` · ${posLabel(r.position)}`;
+    }
+    list.append(el('div', { class: 'hist-row' },
+      el('div', { class: 'hist-main' },
+        el('div', { class: 'hist-when' }, fmtDateTime(r.timestamp), r.source === 'manual' && r.synced === false ? el('span', { class: 'unsynced', title: 'Logged without network sync' }, ' ⚠︎') : null, ' ', sourceBadge(r)),
+        el('div', { class: 'hist-off' }, main, r.source === 'manual' && r.offsetSeconds ? el('span', { class: 'muted small' }, fmtOffset(r.offsetSeconds)) : null),
+        sub ? el('div', { class: 'hist-rate muted small' }, sub) : null),
+      el('button', { type: 'button', class: 'icon-btn sm danger', 'aria-label': 'Delete reading', onclick: () => deleteReading(w, null, r.id) }, '×')));
+  }
   box.append(list);
 }
 
