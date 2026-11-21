@@ -8,7 +8,7 @@ import { APP_NAME, CHANNEL_SHORT } from './config.js';
 
 const W = 1080, H = 1350;
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-const COL = { good: '#34d399', mid: '#fbbf24', badr: '#f87171', '': '#4cc2ff' };
+const COL = { good: '#34d399', mid: '#fbbf24', badr: '#f87171', '': '#c9a96e' };
 
 function loadImg(src) {
   return new Promise((resolve) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => resolve(null); i.src = src; });
@@ -97,7 +97,7 @@ export async function drawCard(w) {
   // Footer
   ctx.fillStyle = '#2a3142'; ctx.fillRect(60, H - 120, W - 120, 2);
   ctx.fillStyle = '#eef1f7'; ctx.font = `700 34px ${FONT}`; ctx.fillText(APP_NAME, 60, H - 62);
-  ctx.textAlign = 'right'; ctx.fillStyle = '#4cc2ff'; ctx.font = `600 32px ${FONT}`; ctx.fillText(CHANNEL_SHORT, W - 60, H - 62);
+  ctx.textAlign = 'right'; ctx.fillStyle = '#c9a96e'; ctx.font = `600 32px ${FONT}`; ctx.fillText(CHANNEL_SHORT, W - 60, H - 62);
 
   return new Promise((resolve) => c.toBlob((b) => resolve({ blob: b, url: c.toDataURL('image/jpeg', 0.7) }), 'image/png'));
 }

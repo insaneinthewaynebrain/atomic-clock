@@ -602,7 +602,7 @@ function drawTrace(c, ts, bph, { span = 0, from = null } = {}) {
     const x = 4 + ((t - start) / total) * (w - 8);
     const fresh = newest - t < 1.5;
     g.globalAlpha = out ? 0.25 : 1;
-    g.fillStyle = n & 1 ? '#fbbf24' : '#4cc2ff';
+    g.fillStyle = n & 1 ? '#fbbf24' : '#c9a96e';
     const s = fresh ? 4 : 2.6;
     g.fillRect(x - s / 2, y - s / 2, s, s);
   });

@@ -552,7 +552,7 @@ export const cardLines = [];
 export const boxSections = [];
 
 /* ---------- Watch Box screen ---------- */
-const root = () => document.getElementById('collection');
+const root = () => document.getElementById('box-list');
 
 function summary(list) {
   let paid = 0, est = 0, gain = 0, nPaid = 0;
@@ -588,7 +588,7 @@ function summary(list) {
   return card;
 }
 
-const SORTS = [['newest', 'Newest acquired'], ['oldest', 'Oldest acquired'], ['name', 'Name A–Z'], ['mostWorn', 'Most worn']];
+const SORTS = [['newest', 'Newest first'], ['oldest', 'Oldest first'], ['name', 'Name A–Z'], ['mostWorn', 'Most worn']];
 const acquired = (w) => w.purchaseDate || (w.added ? new Date(w.added).toISOString().slice(0, 10) : '');
 function sortList(list, sort) {
   const by = {
@@ -823,6 +823,10 @@ export function showCollection(sub) {
   import('./detail.js').then((m) => {
     if (sub && getWatch(sub)) m.openPage(getWatch(sub));
     else if (!sub && m.pageOpenId() && !matchMedia('(min-width: 900px)').matches) m.closePage();
+    else if (!sub && !m.pageOpenId() && matchMedia('(min-width: 900px)').matches && !isLocked()) {
+      const first = getWatch(d().selectedWatchId) || ownedWatches()[0];
+      if (first && (first.status || 'owned') === 'owned') m.openPage(first);
+    }
   });
 }
 export function hideCollection() { visible = false; }

@@ -23,7 +23,7 @@ export function sleepScore(n) {
   return Math.round(dur * 55 + calm * 20 + quiet * 15 + voice * 10);
 }
 const scoreWord = (s) => (s >= 85 ? 'Great night' : s >= 70 ? 'Good night' : s >= 50 ? 'Fair night' : 'Rough night');
-const scoreColour = (s) => (s >= 85 ? '#34d399' : s >= 70 ? '#4cc2ff' : s >= 50 ? '#fbbf24' : '#f87171');
+const scoreColour = (s) => (s >= 85 ? '#34d399' : s >= 70 ? '#c9a96e' : s >= 50 ? '#fbbf24' : '#f87171');
 
 function ring(score) {
   const ns = 'http://www.w3.org/2000/svg', R = 52, C = 2 * Math.PI * R;

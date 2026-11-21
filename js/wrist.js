@@ -8,7 +8,7 @@ import { fillImg } from './photos.js';
 import { backupDue, exportBackup } from './backup.js';
 
 const HOUR = 3600000, DAY = 86400000;
-const PALETTE = ['#4cc2ff', '#fbbf24', '#34d399', '#f472b6', '#a78bfa', '#fb923c', '#60a5fa', '#f87171', '#2dd4bf', '#e879f9', '#a3e635', '#fcd34d'];
+const PALETTE = ['#c9a96e', '#fbbf24', '#34d399', '#f472b6', '#a78bfa', '#fb923c', '#60a5fa', '#f87171', '#2dd4bf', '#e879f9', '#a3e635', '#fcd34d'];
 const NOT_WORN_DAYS = 30;
 
 const d = () => store.get();
