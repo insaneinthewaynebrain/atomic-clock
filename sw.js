@@ -1,7 +1,7 @@
 // Service worker: keeps the app working offline.
 // Online: always fetch the latest files from the network (so updates show straight away).
 // Offline: use the copies saved here.
-const VERSION = 'v66';
+const VERSION = 'v67';
 const CACHE = 'atomic-clock-' + VERSION;
 const SHELL = [
   './', './index.html', './styles.css', './manifest.webmanifest',
@@ -11,6 +11,8 @@ const SHELL = [
   './js/wrist.js', './js/sharecard.js', './js/setting.js', './js/insurance.js', './js/timegrapher.js', './js/tick-worklet.js', './js/countdown.js', './js/alarm.js', './js/ring.js', './js/music.js', './js/sun.js', './js/timers.js', './js/meds.js', './js/sleep.js', './js/wakewords.js', './js/alarmsound.js', './js/keepawake.js', './js/morning.js', './js/camera.js', './js/watchdb.js', './js/dialscan.js', './js/addwatch.js', './js/dialfind.js', './js/watchdocs.js', './js/galleries.js', './js/exif.js', './js/watchlife.js', './js/worldmap.js',
   './js/model.js',
   './js/accuracyui.js',
+  './js/lock.js',
+  './js/birthday.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png',
 ];
 

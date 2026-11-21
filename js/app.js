@@ -20,8 +20,10 @@ import * as alarm from './alarm.js';
 import * as watchdocs from './watchdocs.js';
 import * as galleries from './galleries.js';
 import * as watchlife from './watchlife.js';
+import { initLock, onLockChange } from './lock.js';
+import { initBirthdays, checkBirthdays } from './birthday.js';
 
-export const APP_VERSION = '66';
+export const APP_VERSION = '67';
 
 // Feature modules that register their own tabs/tools.
 const EXTRA_MODULES = [wrist, watchlife, galleries, watchdocs, setting, insurance, timegrapher, alarm];
@@ -77,6 +79,7 @@ async function init() {
   initWorld();
   initWeather();
   initCurrency();
+  initLock();
   initCollection();
   initTools(APP_VERSION);
   registerBuiltInTools();
@@ -84,6 +87,8 @@ async function init() {
   const api = { registerTab, registerTool, switchTab };
   for (const m of EXTRA_MODULES) m.register(api);
   initCountdown();
+  initBirthdays();
+  onLockChange(() => checkBirthdays());
 
   startSync();
   // Old links: the Wrist tab now lives inside the Watch Box.

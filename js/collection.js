@@ -8,7 +8,8 @@ import { captureFace } from './camera.js';
 import { addWatch } from './addwatch.js';
 export { addWatch };
 import { BRANDS, FEATURE_LABELS, chrono24Url } from './watchdb.js';
-import { photoIdsOf } from './model.js';
+import { photoIdsOf, allFeatures, allCategories, featuresOf } from './model.js';
+import { isLocked, padlockTapped, onLockChange, lockEnabled } from './lock.js';
 
 /* ---------- Reference lists ---------- */
 export const MOVEMENTS = [
@@ -612,21 +613,70 @@ function summary(list) {
   return card;
 }
 
-const SORTS = [
-  ['brand', 'Brand A–Z'], ['valueDesc', 'Value: high to low'], ['newest', 'Newest purchase'], ['oldest', 'Oldest purchase'],
-  ['mostWorn', 'Most worn'], ['leastWorn', 'Least worn'], ['name', 'Name A–Z'],
-];
+const SORTS = [['newest', 'Newest acquired'], ['oldest', 'Oldest acquired'], ['name', 'Name A–Z'], ['mostWorn', 'Most worn']];
+const acquired = (w) => w.purchaseDate || (w.added ? new Date(w.added).toISOString().slice(0, 10) : '');
 function sortList(list, sort) {
   const by = {
-    brand: (a, b) => (a.brand || '~').localeCompare(b.brand || '~') || a.name.localeCompare(b.name),
     name: (a, b) => a.name.localeCompare(b.name),
-    valueDesc: (a, b) => (num(b.value) ?? num(b.purchasePrice) ?? num(b.targetPrice) ?? -1) - (num(a.value) ?? num(a.purchasePrice) ?? num(a.targetPrice) ?? -1),
-    newest: (a, b) => (b.purchaseDate || '').localeCompare(a.purchaseDate || ''),
-    oldest: (a, b) => (a.purchaseDate || '9999').localeCompare(b.purchaseDate || '9999'),
-    mostWorn: (a, b) => daysWorn(b.id) - daysWorn(a.id),
-    leastWorn: (a, b) => daysWorn(a.id) - daysWorn(b.id),
-  }[sort] || ((a, b) => a.name.localeCompare(b.name));
+    newest: (a, b) => acquired(b).localeCompare(acquired(a)) || a.name.localeCompare(b.name),
+    oldest: (a, b) => (acquired(a) || '9999').localeCompare(acquired(b) || '9999') || a.name.localeCompare(b.name),
+    mostWorn: (a, b) => daysWorn(b.id) - daysWorn(a.id) || a.name.localeCompare(b.name),
+  }[sort] || ((a, b) => acquired(b).localeCompare(acquired(a)));
   return [...list].sort(by);
+}
+
+/* ---------- Filters: features (all must match), categories (any), movement (any) ---------- */
+const emptyFilters = () => ({ features: [], categories: [], movements: [], hide: false });
+const filtersOf = (view) => (view.filters ||= emptyFilters());
+const activeCount = (f) => f.features.length + f.categories.length + f.movements.length;
+export function matchesFilters(w, f) {
+  const feats = featuresOf(w);
+  if (f.features.length && !f.features.every((x) => feats.includes(x))) return false;
+  if (f.categories.length && !f.categories.some((x) => (w.categories || []).includes(x))) return false;
+  if (f.movements.length && !f.movements.includes(w.movement || '')) return false;
+  return true;
+}
+
+function openFilters(view, onDone) {
+  const f = { ...emptyFilters(), ...filtersOf(view) };
+  f.features = [...f.features]; f.categories = [...f.categories]; f.movements = [...f.movements];
+  const chips = (key, items) => el('div', { class: 'chips' }, items.map(([id, label]) => {
+    const b = el('button', { type: 'button', class: 'chip-btn' + (f[key].includes(id) ? ' on' : ''), 'aria-pressed': String(f[key].includes(id)),
+      onclick: () => { f[key] = f[key].includes(id) ? f[key].filter((x) => x !== id) : [...f[key], id]; b.classList.toggle('on'); b.setAttribute('aria-pressed', String(f[key].includes(id))); } }, label);
+    return b;
+  }));
+  const groups = {};
+  for (const x of allFeatures(d())) (groups[x.group] ||= []).push([x.id, x.label]);
+  const hide = el('input', { type: 'checkbox', class: 'check', checked: f.hide });
+  openModal({
+    title: 'Filter the Watch Box', className: 'tall',
+    content: [
+      el('label', { class: 'field check-field' }, hide, el('span', {}, 'Hide watches that don’t match (otherwise they’re greyed out)')),
+      el('h3', { class: 'sub-title' }, 'Category'), chips('categories', allCategories(d()).map((c) => [c.id, c.label])),
+      el('h3', { class: 'sub-title' }, 'Movement'), chips('movements', MOVEMENTS),
+      el('h3', { class: 'sub-title' }, 'Features'), el('p', { class: 'muted small' }, 'Watches must have every feature you pick.'),
+      ...Object.entries(groups).map(([g, items]) => el('div', { class: 'chip-group' }, el('div', { class: 'eyebrow' }, g === 'custom' ? 'Your own' : g), chips('features', items))),
+    ],
+    actions: [
+      { label: 'Clear all', onClick: () => { view.filters = emptyFilters(); store.save(); onDone(); } },
+      { label: 'Show watches', kind: 'primary', onClick: () => { f.hide = hide.checked; view.filters = f; store.save(); onDone(); } },
+    ],
+  });
+}
+
+function filterBar(view, onChange) {
+  const f = filtersOf(view);
+  const n = activeCount(f);
+  const label = (key, id) => key === 'features' ? (allFeatures(d()).find((x) => x.id === id) || { label: id }).label
+    : key === 'categories' ? (allCategories(d()).find((x) => x.id === id) || { label: id }).label : movementLabel(id) || id;
+  const active = [];
+  for (const key of ['categories', 'movements', 'features']) for (const id of f[key]) {
+    active.push(el('button', { type: 'button', class: 'chip-btn on sm', onclick: () => { f[key] = f[key].filter((x) => x !== id); store.save(); onChange(); } }, label(key, id), ' ×'));
+  }
+  return el('div', { class: 'filter-bar' },
+    el('button', { type: 'button', class: 'btn sm' + (n ? ' primary' : ''), onclick: () => openFilters(view, onChange) }, n ? `Filters · ${n}` : '⚲ Filter'),
+    n ? el('div', { class: 'chips inline' }, active) : null,
+    n ? el('button', { type: 'button', class: 'link-btn', onclick: () => { view.filters = emptyFilters(); store.save(); onChange(); } }, 'Clear all') : null);
 }
 
 function watchCard(w) {
@@ -672,10 +722,18 @@ function wornText(id) {
   return `${days} day${days === 1 ? '' : 's'} worn · past year`;
 }
 
-function slotEl(w, tier) {
+// Tapping a watch presses it into its cushion (~200 ms, then a slight spring back) before its page opens.
+const reducedMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+function pressOpen(node, w) {
+  if (reducedMotion()) { openWatchDetail(w); return; }
+  node.classList.remove('pressing'); void node.offsetWidth; node.classList.add('pressing');
+  setTimeout(() => { node.classList.remove('pressing'); openWatchDetail(w); }, 200);
+}
+
+function slotEl(w, tier, dim = false) {
   const status = cardLines.map((f) => f(w)).find(Boolean);
   const model = [w.model, w.reference].filter(Boolean).join(' · ') || (w.brand ? w.name.replace(w.brand, '').trim() : '') || w.name;
-  return el('button', { type: 'button', class: `slot tier-${tier}`, onclick: () => openWatchDetail(w), 'aria-label': w.name },
+  return el('button', { type: 'button', class: `slot tier-${tier}${dim ? ' dim' : ''}`, onclick: (e) => pressOpen(e.currentTarget, w), 'aria-label': w.name },
     el('div', { class: 'slot-brand' }, w.brand || w.name),
     el('div', { class: 'slot-cushion' }, faceEl(w)),
     el('div', { class: 'slot-model' }, model),
@@ -683,11 +741,11 @@ function slotEl(w, tier) {
     status ? el('div', { class: 'slot-status ' + (status.cls || '') }, status.text) : null);
 }
 
-function watchBox(all, shown, view, filtering) {
+function watchBox(all, shown, view, filtering, dimmed = null) {
   const tiers = wearTiers(all);
   const slots = Math.max(view.slots || DEFAULT_SLOTS, all.length);
   const inner = el('div', { class: 'wbox-lining' });
-  for (const w of shown) inner.append(slotEl(w, tiers[w.id]));
+  for (const w of shown) inner.append(slotEl(w, tiers[w.id], dimmed && dimmed.has(w.id)));
   if (filtering && !shown.length) inner.append(el('p', { class: 'muted empty-note' }, 'No watches match your search.'));
   if (!filtering) {
     for (let i = all.length; i < slots; i++) {
@@ -715,6 +773,13 @@ export function render() {
   box.innerHTML = '';
   const data = d();
   const view = data.collectionView;
+  if (isLocked()) {
+    box.append(el('div', { class: 'locked-box' },
+      el('div', { class: 'wbox locked' }, el('div', { class: 'wbox-lid' }), el('div', { class: 'wbox-lining' }, ...Array.from({ length: 6 }, () => el('div', { class: 'slot ghost' }, el('div', { class: 'slot-cushion' }))))),
+      el('div', { class: 'locked-over' }, el('div', { class: 'locked-pad' }, '🔒'), el('div', { class: 'locked-t' }, 'Your Watch Box is locked'),
+        el('button', { type: 'button', class: 'btn primary', onclick: padlockTapped }, 'Unlock'))));
+    return;
+  }
   const counts = { owned: 0, wishlist: 0, sold: 0 };
   for (const w of data.watches) counts[w.status || 'owned']++;
 
@@ -726,12 +791,13 @@ export function render() {
 
   const owned = view.tab === 'owned';
   const list = data.watches.filter((w) => (w.status || 'owned') === view.tab);
+  if (!SORTS.some(([v]) => v === view.sort)) view.sort = 'newest';
 
   const search = el('input', { type: 'search', class: 'input', placeholder: 'Search', value: view.q || '', 'aria-label': 'Search watches',
     oninput: (e) => { view.q = e.target.value; draw(); } });
   const sort = el('select', { class: 'input', 'aria-label': 'Sort', onchange: (e) => { view.sort = e.target.value; store.save(); draw(); } },
     SORTS.map(([v, lab]) => el('option', { value: v, selected: view.sort === v }, lab)));
-  if (list.length) box.append(el('div', { class: 'coll-tools' }, search, sort));
+  if (list.length) box.append(el('div', { class: 'coll-tools' }, search, sort), filterBar(view, () => render()));
 
   const addLabel = view.tab === 'wishlist' ? '+ Add to wishlist' : view.tab === 'sold' ? '+ Add a sold watch' : '+ Add a watch';
   box.append(el('button', { type: 'button', class: 'btn primary wide', onclick: () => addWatch(view.tab) }, addLabel));
@@ -744,13 +810,19 @@ export function render() {
     let shown = list;
     if (q) shown = list.filter((w) => [w.name, w.brand, w.model, w.reference, w.nickname, w.calibre].some((x) => x && String(x).toLowerCase().includes(q)));
     shown = sortList(shown, view.sort);
-    if (owned) { area.append(watchBox(list, shown, view, !!q)); return; }
+    const f = filtersOf(view);
+    let dimmed = null;
+    if (activeCount(f)) {
+      if (f.hide) shown = shown.filter((w) => matchesFilters(w, f));
+      else dimmed = new Set(shown.filter((w) => !matchesFilters(w, f)).map((w) => w.id));
+    }
+    if (owned) { area.append(watchBox(list, shown, view, !!q || (activeCount(f) > 0 && f.hide), dimmed)); return; }
     const grid = el('div', { class: 'watch-grid' });
     if (!shown.length) {
       grid.append(el('p', { class: 'muted empty-note' }, q ? 'No watches match your search.' :
         view.tab === 'wishlist' ? 'Nothing on your wishlist yet.' : 'No sold or traded watches yet.'));
     }
-    for (const w of shown) grid.append(watchCard(w));
+    for (const w of shown) { const c = watchCard(w); if (dimmed && dimmed.has(w.id)) c.classList.add('dim'); grid.append(c); }
     area.append(grid);
   }
   draw();
@@ -763,6 +835,11 @@ export const bannerHooks = [];
 
 let visible = false;
 export function initCollection() {
+  const pad = document.getElementById('box-lock');
+  const drawPad = () => { if (pad) { pad.textContent = isLocked() ? '🔒' : lockEnabled() ? '🔓' : '🔒'; pad.classList.toggle('off', !lockEnabled()); pad.setAttribute('aria-label', isLocked() ? 'Unlock Watch Box' : lockEnabled() ? 'Watch Box lock' : 'Set up a Watch Box lock'); } };
+  if (pad) pad.addEventListener('click', padlockTapped);
+  onLockChange(() => { drawPad(); if (visible) render(); });
+  drawPad();
   store.on('watches', () => { if (visible) render(); });
   store.on('wear', () => { if (visible) render(); });
 }
