@@ -19,14 +19,14 @@ import * as timegrapher from './timegrapher.js';
 import * as alarm from './alarm.js';
 import * as watchdocs from './watchdocs.js';
 import * as galleries from './galleries.js';
-import * as watchlife from './watchlife.js';
 import { initLock, onLockChange } from './lock.js';
+import { initDetail } from './detail.js';
 import { initBirthdays, checkBirthdays } from './birthday.js';
 
-export const APP_VERSION = '67';
+export const APP_VERSION = '68';
 
 // Feature modules that register their own tabs/tools.
-const EXTRA_MODULES = [wrist, watchlife, galleries, watchdocs, setting, insurance, timegrapher, alarm];
+const EXTRA_MODULES = [wrist, galleries, watchdocs, setting, insurance, timegrapher, alarm];
 
 const TABS = {
   clock: { show: showClock, hide: hideClock },
@@ -44,7 +44,7 @@ export function registerTab(name, def) {
 
 export function switchTab(name, sub) {
   if (!TABS[name]) return;
-  if (name === currentTab) { if (name === 'tools') { if (sub) showTools(sub); else goHome(); } return; }
+  if (name === currentTab) { if (name === 'tools') { if (sub) showTools(sub); else goHome(); } else if (name === 'collection') showCollection(sub); return; }
   if (currentTab && TABS[currentTab].hide) TABS[currentTab].hide();
   currentTab = name;
   document.querySelectorAll('.tab').forEach((s) => s.classList.toggle('active', s.dataset.tab === name));
@@ -81,6 +81,7 @@ async function init() {
   initCurrency();
   initLock();
   initCollection();
+  initDetail();
   initTools(APP_VERSION);
   registerBuiltInTools();
 

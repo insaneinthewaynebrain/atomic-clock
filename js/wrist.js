@@ -338,7 +338,7 @@ function boxSection() {
 }
 
 /* ---------- Each watch's page: its own wrist panel ---------- */
-function wristPanel(w) {
+export function wristPanel(w) {
   if ((w.status || 'owned') !== 'owned') return null;
   const box = el('div', { class: 'wrist-panel' });
   const reopen = () => { const fresh = getWatch(w.id); if (fresh) openWatchDetail(fresh); };

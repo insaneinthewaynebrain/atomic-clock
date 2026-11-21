@@ -64,6 +64,14 @@ export async function addPhoto(file) {
   return id;
 }
 
+/** Stores any file as it is (e.g. an insurance PDF). Returns its id; images get a thumbnail too. */
+export async function addFile(file) {
+  if ((file.type || '').startsWith('image/')) return addPhoto(file);
+  const id = 'f' + uid();
+  await tx('readwrite', (st) => st.put({ id, full: file, thumb: null, added: Date.now(), name: file.name || 'document', mime: file.type || 'application/octet-stream' }));
+  return id;
+}
+
 export async function deletePhoto(id) {
   forget(id);
   await tx('readwrite', (st) => st.delete(id));
@@ -125,6 +133,11 @@ export async function importPhotos(map) {
   for (const [id, dataUrl] of Object.entries(map || {})) {
     try {
       const full = await dataUrlToBlob(dataUrl);
+      if (!full.type.startsWith('image/')) {      // a stored document (e.g. PDF): keep it as it is
+        forget(id);
+        await tx('readwrite', (st) => st.put({ id, full, thumb: null, added: Date.now(), mime: full.type }));
+        n++; continue;
+      }
       const img = await loadImage(full);
       const thumb = await resize(img, THUMB_PX, 0.78, full.type === 'image/png' ? 'image/png' : 'image/jpeg');
       forget(id);

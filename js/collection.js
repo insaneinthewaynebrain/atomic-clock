@@ -8,7 +8,7 @@ import { captureFace } from './camera.js';
 import { addWatch } from './addwatch.js';
 export { addWatch };
 import { BRANDS, FEATURE_LABELS, chrono24Url } from './watchdb.js';
-import { photoIdsOf, allFeatures, allCategories, featuresOf } from './model.js';
+import { photoIdsOf, allFeatures, allCategories, featuresOf, FEATURE_GROUPS, HOW_ACQUIRED, WHY_BOUGHT } from './model.js';
 import { isLocked, padlockTapped, onLockChange, lockEnabled } from './lock.js';
 
 /* ---------- Reference lists ---------- */
@@ -105,8 +105,8 @@ export const FORM = [
   { group: 'Watch', fields: [
     { k: 'name', label: 'Name shown in the app', ph: 'e.g. Rolex GMT', req: true },
     { k: 'brand', label: 'Brand', type: 'brand', half: true },
-    { k: 'model', label: 'Model', half: true },
-    { k: 'reference', label: 'Reference', half: true },
+    { k: 'model', label: 'Model name', half: true },
+    { k: 'reference', label: 'Model number (reference)', half: true },
     { k: 'year', label: 'Year made', type: 'number', ph: 'e.g. 2019', half: true },
     { k: 'nickname', label: 'Nickname', ph: 'e.g. Pepsi' },
   ] },
@@ -117,15 +117,17 @@ export const FORM = [
     { k: 'powerReserve', label: 'Power reserve (hours)', type: 'number', half: true },
     { k: 'jewels', label: 'Jewels', type: 'number', half: true },
   ] },
-  { group: 'Functions', fields: [
-    ...Object.entries(FEATURE_LABELS).map(([k, label]) => ({ k, label, type: 'check', half: true })),
-    { k: 'chronometer', label: 'Chronometer certified', type: 'check', half: true },
-  ] },
+  { group: 'Features', fields: [{ k: 'features', type: 'chips', source: 'features' }] },
+  { group: 'Categories', fields: [{ k: 'categories', type: 'chips', source: 'categories' }] },
   { group: 'Case & strap', fields: [
     { k: 'caseSize', label: 'Case size (mm)', type: 'number', half: true },
     { k: 'lugWidth', label: 'Lug width (mm)', type: 'number', half: true },
     { k: 'waterResistance', label: 'Water resistance', ph: 'e.g. 200 m', half: true },
     { k: 'strap', label: 'Strap or bracelet', ph: 'e.g. Jubilee', half: true },
+    { k: 'caseMaterial', label: 'Case material', ph: 'e.g. Steel', half: true },
+    { k: 'thickness', label: 'Thickness (mm)', type: 'number', half: true },
+    { k: 'crystal', label: 'Crystal', ph: 'e.g. Sapphire', half: true },
+    { k: 'dial', label: 'Dial', ph: 'e.g. Black, sunburst', half: true },
   ] },
   { group: 'Purchase', fields: [
     { k: 'purchaseDate', label: 'Purchase date', type: 'date', half: true },
@@ -154,6 +156,13 @@ export const FORM = [
   { group: 'Private', fields: [
     { k: 'serial', label: 'Serial number (kept private, never shared)', type: 'serial' },
   ] },
+  { group: 'Sentimental', fields: [
+    { k: 'howAcquired', label: 'How I got it', type: 'select', options: HOW_ACQUIRED, half: true },
+    { k: 'whyBought', label: 'Why', type: 'select', options: WHY_BOUGHT, half: true },
+    { k: 'fromWho', label: 'Who it’s from', ph: 'e.g. Dad', half: true, showIf: (v) => v.howAcquired !== 'bought' },
+    { k: 'occasion', label: 'Occasion', ph: 'e.g. 40th birthday', half: true },
+    { k: 'story', label: 'My story', type: 'textarea' },
+  ] },
   { group: 'Legacy', note: 'A private note of who you’d like this watch to go to. This is not a will or an official document — to make it legally binding, include it in your will with a solicitor.', fields: [
     { k: 'willStatus', label: 'Is this watch in your will?', type: 'select', options: [['yes', 'Yes'], ['no', 'No'], ['undecided', 'Not decided yet']] },
     { k: 'willTo', label: 'To be left to', ph: 'e.g. my son, James', showIf: (v) => v.willStatus !== 'no' },
@@ -164,8 +173,41 @@ export const FORM = [
   ] },
 ];
 
+function chipsInput(f, w) {
+  const chosen = new Set(f.source === 'features' ? featuresOf(w) : (w.categories || []));
+  const box = el('div', { class: 'chips-field', 'data-k': f.k });
+  box._value = () => [...chosen];
+  const chip = (id, label) => {
+    const b = el('button', { type: 'button', class: 'chip-btn' + (chosen.has(id) ? ' on' : ''), 'aria-pressed': String(chosen.has(id)),
+      onclick: () => { chosen.has(id) ? chosen.delete(id) : chosen.add(id); b.classList.toggle('on'); b.setAttribute('aria-pressed', String(chosen.has(id))); } }, label);
+    return b;
+  };
+  const addOwn = (row) => el('button', { type: 'button', class: 'chip-btn add', onclick: () => {
+    const name = prompt(f.source === 'features' ? 'Name of the feature' : 'Name of the category');
+    if (!name || !name.trim()) return;
+    const id = 'c_' + store.uid();
+    (f.source === 'features' ? (d().customFeatures ||= []) : (d().customCategories ||= [])).push({ id, label: name.trim() });
+    store.save(); chosen.add(id);
+    row.insertBefore(chip(id, name.trim()), row.lastChild);
+  } }, '＋ Add your own');
+  if (f.source === 'features') {
+    const groups = [...FEATURE_GROUPS.map((g) => [g.title, g.items]), ['Your own', (d().customFeatures || []).map((c) => [c.id, c.label])]];
+    for (const [title, items] of groups) {
+      const row = el('div', { class: 'chips' }, items.map(([id, label]) => chip(id, label)));
+      if (title === 'Your own') row.append(addOwn(row));
+      if (items.length || title === 'Your own') box.append(el('div', { class: 'chip-group' }, el('div', { class: 'eyebrow' }, title), row));
+    }
+  } else {
+    const row = el('div', { class: 'chips' }, allCategories(d()).map((c) => chip(c.id, c.label)));
+    row.append(addOwn(row));
+    box.append(row);
+  }
+  return box;
+}
+
 function fieldInput(f, w) {
   const v = w[f.k];
+  if (f.type === 'chips') return chipsInput(f, w);
   if (f.type === 'brand') {
     const list = allBrands();
     if (v && !list.includes(v)) list.unshift(v);
@@ -202,6 +244,7 @@ function fieldInput(f, w) {
 function readField(f, root) {
   const n = root.querySelector(`[data-k="${f.k}"]`);
   if (!n) return undefined;
+  if (f.type === 'chips') return n._value();
   if (f.type === 'check') return n.checked;
   const v = n.value.trim();
   if (f.type === 'brand' && v === '__add') return root.querySelector(`[data-k="${f.k}__new"]`).value.trim() || null;
@@ -290,7 +333,8 @@ export function openWatchEditor(watch, opts = {}) {
     if (g.note) box.append(el('p', { class: 'muted small fnote' }, g.note));
     let pair = null;
     for (const f of g.fields) {
-      const label = f.type === 'check'
+      const label = f.type === 'chips' ? el('div', { class: 'field' }, fieldInput(f, w))
+        : f.type === 'check'
         ? el('label', { class: 'field check-field' }, fieldInput(f, w), el('span', {}, f.label))
         : el('label', { class: 'field' }, el('span', {}, f.label + (f.req ? ' *' : '')), fieldInput(f, w));
       if (f.showIf) conditional.push([f, label]);
@@ -308,7 +352,7 @@ export function openWatchEditor(watch, opts = {}) {
   toggleGroups();
   const toggleFields = () => {
     const vals = {};
-    for (const g of FORM) for (const x of g.fields) { const n = form.querySelector(`[data-k="${x.k}"]`); if (n) vals[x.k] = n.type === 'checkbox' ? n.checked : n.value; }
+    for (const g of FORM) for (const x of g.fields) { if (x.type === 'chips') continue; const n = form.querySelector(`[data-k="${x.k}"]`); if (n) vals[x.k] = n.type === 'checkbox' ? n.checked : n.value; }
     for (const [f, label] of conditional) label.hidden = !f.showIf(vals);
   };
   form.addEventListener('change', toggleFields);
@@ -331,6 +375,7 @@ export function openWatchEditor(watch, opts = {}) {
     if (w.name) nameIn.dataset.touched = '1'; else autoName();
   } else nameIn.dataset.touched = '1';
 
+  if (opts.focusGroup) setTimeout(() => { const g = groups.find((x) => x.g.group === opts.focusGroup); if (g) g.box.scrollIntoView({ block: 'start' }); }, 250);
   openModal({
     title: isNew ? (w.status === 'wishlist' ? 'Add to wishlist' : 'Add a watch') : (opts.status === 'sold' && watch.status !== 'sold' ? `Mark ${watch.name} as sold` : `Edit ${watch.name}`),
     className: 'tall',
@@ -343,6 +388,7 @@ export function openWatchEditor(watch, opts = {}) {
           const vals = {};
           for (const g of FORM) for (const f of g.fields) { const v = readField(f, form); if (v !== undefined) vals[f.k] = v; }
           if (!vals.name) vals.name = [vals.brand, vals.model].filter(Boolean).join(' ');
+          vals.featuresTouched = true;
           if (!vals.name) { toast('Please give the watch a name'); nameIn.focus(); return false; }
           if (vals.brand && !allBrands().includes(vals.brand)) { (d().customBrands ||= []).push(vals.brand); }
           saved = true;
@@ -402,7 +448,7 @@ function loadQr() {
 
 /** Plain-text sale listing that the QR code holds — readable by any phone camera, no website needed. */
 export function saleText(w, sale) {
-  const feats = Object.keys(FEATURE_LABELS).filter((k) => w[k]).map((k) => FEATURE_LABELS[k]);
+  const feats = featuresOf(w).map((id) => (allFeatures(d()).find((f) => f.id === id) || { label: id }).label);
   const lines = [
     `FOR SALE: ${[w.brand, w.model].filter(Boolean).join(' ') || w.name}`,
     w.reference ? `Reference: ${w.reference}` : null,
@@ -420,7 +466,7 @@ export function saleText(w, sale) {
   return lines.filter(Boolean).join('\n');
 }
 
-function openSaleQr(w) {
+export function openSaleQr(w) {
   const sale = { price: w.sale?.price ?? w.value ?? null, contact: w.sale?.contact || '', extra: w.sale?.extra || '' };
   const priceIn = el('input', { class: 'input', type: 'text', inputmode: 'decimal', value: sale.price ?? '', placeholder: 'Asking price' });
   const contactIn = el('input', { class: 'input', type: 'text', value: sale.contact, placeholder: 'Phone or email' });
@@ -487,86 +533,15 @@ export function openPhotoViewer(ids, start = 0) {
   openModal({ className: 'viewer', content: [img, count], actions });
 }
 
+/** Opens a watch's page (in the Watch Box tab; beside the list on wide screens). */
 export function openWatchDetail(w) {
-  const st = watchStats(w);
-  const box = el('div', { class: 'detail' });
-  if (w.face) {
-    const f = faceEl(w, 'full', 'face-lg');
-    f.addEventListener('click', () => openPhotoViewer([w.face, ...(w.photos || [])], 0));
-    box.append(f);
-    if (w.photos?.length) {
-      box.append(el('div', { class: 'photo-row' }, w.photos.map((id, i) => {
-        const t = el('img', { class: 'thumb', alt: 'Watch photo', onclick: () => openPhotoViewer([w.face, ...w.photos], i + 1) });
-        fillImg(t, id);
-        return t;
-      })));
-    }
-  } else if (w.photos?.length) {
-    const main = el('img', { class: 'detail-photo', alt: w.name, onclick: () => openPhotoViewer(w.photos, 0) });
-    fillImg(main, w.photos[0], 'full');
-    box.append(main);
-    if (w.photos.length > 1) {
-      box.append(el('div', { class: 'photo-row' }, w.photos.map((id, i) => {
-        const t = el('img', { class: 'thumb', alt: 'Watch photo', onclick: () => openPhotoViewer(w.photos, i) });
-        fillImg(t, id);
-        return t;
-      })));
-    }
-  }
-  if (subtitle(w)) box.append(el('p', { class: 'muted' }, subtitle(w)));
-
-  const serialFact = w.serial ? (() => {
-    const v = el('button', { type: 'button', class: 'link-btn serial', onclick: () => { v.textContent = v.textContent.startsWith('•') ? w.serial : '•••••• (tap to show)'; } }, '•••••• (tap to show)');
-    return el('div', { class: 'fact' }, el('span', { class: 'fact-k' }, 'Serial'), v);
-  })() : null;
-
-  const gain = w.value != null && w.purchasePrice != null ? w.value - w.purchasePrice : null;
-  const soldPL = w.soldPrice != null && w.purchasePrice != null ? w.soldPrice - w.purchasePrice : null;
-  box.append(el('div', { class: 'facts' },
-    fact('Nickname', w.nickname),
-    fact('Movement', [movementLabel(w.movement), w.calibre].filter(Boolean).join(' · ')),
-    fact('Year made', w.year),
-    fact('Beat rate', w.bph ? `${Number(w.bph).toLocaleString('en-GB')} bph` : null),
-    fact('Jewels', w.jewels),
-    fact('Functions', Object.keys(FEATURE_LABELS).filter((k) => w[k]).map((k) => FEATURE_LABELS[k]).join(', ') || null),
-    fact('Chronometer', w.chronometer ? 'Certified' : null),
-    fact('Power reserve', w.powerReserve ? `${w.powerReserve} h` : null),
-    fact('Case size', w.caseSize ? `${w.caseSize} mm` : null),
-    fact('Lug width', w.lugWidth ? `${w.lugWidth} mm` : null),
-    fact('Water resistance', w.waterResistance),
-    fact('Strap', w.strap),
-    fact('Bought', [w.purchaseDate ? new Date(w.purchaseDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null,
-      w.sellerType === 'private' ? 'Private seller' : w.boughtFrom, w.sellerType && w.sellerType !== 'private' ? (SELLER_TYPES.find((x) => x[0] === w.sellerType) || [])[1] : null].filter(Boolean).join(' · ')),
-    fact('Shop address', ['ad', 'jeweller'].includes(w.sellerType) ? w.sellerAddress : null),
-    fact('Shop contact', ['ad', 'jeweller'].includes(w.sellerType) ? w.sellerContact : null),
-    fact('Paid', w.purchasePrice != null ? money(w.purchasePrice) : null),
-    fact('Estimated value', w.value != null ? money(w.value) + (gain != null ? ` (${gain >= 0 ? '+' : '−'}${money(Math.abs(gain))})` : '') : null),
-    fact('Box & papers', w.box || w.papers ? [w.box ? 'Box' : null, w.papers ? 'Papers' : null].filter(Boolean).join(' + ') : null),
-    fact('Condition', w.condition),
-    fact('Target price', w.status === 'wishlist' && w.targetPrice != null ? money(w.targetPrice) : null),
-    fact('Sold', w.status === 'sold' ? [w.soldDate ? new Date(w.soldDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null, w.soldPrice != null ? money(w.soldPrice) : null, w.soldTo].filter(Boolean).join(' · ') : null),
-    fact('Profit / loss', w.status === 'sold' && soldPL != null ? `${soldPL >= 0 ? '+' : '−'}${money(Math.abs(soldPL))}` : null),
-    fact('Accuracy', st.overall != null ? `${fmtRate(st.overall)} (average)` : null),
-    (() => { const g = grade(w, st); return g.ready ? fact('Grade', g.headline) : null; })(),
-    fact('Days worn', w.status === 'owned' && daysWorn(w.id) ? daysWorn(w.id) : null),
-    fact('In your will', w.willStatus ? { yes: 'Yes', no: 'No', undecided: 'Not decided yet' }[w.willStatus] : null),
-    fact('To be left to', w.willStatus !== 'no' ? w.willTo : null),
-    serialFact,
-    ...(detailExtras.map((f) => f(w))),
-  ));
-  for (const f of detailSections) { const n = f(w); if (n) box.append(n); }
-  if (w.notes) box.append(el('h3', { class: 'sub-title' }, 'Notes'), el('p', { class: 'notes' }, w.notes));
-  if (w.status === 'owned') box.append(el('button', { type: 'button', class: 'btn wide sale-btn', onclick: () => { document.getElementById('modal').close(); setTimeout(() => openSaleQr(w), 0); } }, '🏷️ For-sale QR code'));
-
-  const actions = [];
-  if (w.status === 'owned') actions.push({ label: 'Mark as sold', onClick: () => { setTimeout(() => openWatchEditor(w, { status: 'sold' }), 0); } });
-  else actions.push({ label: 'Move to Watch Box', onClick: () => { w.status = 'owned'; if (!w.purchaseDate) w.purchaseDate = new Date().toISOString().slice(0, 10); changed(); toast('Moved to your Watch Box'); } });
-  actions.push(
-    { label: 'Delete', kind: 'danger', onClick: () => { setTimeout(async () => { if (await confirmModal(`Delete “${w.name}”?`, 'This removes the watch, its photos and all its marks.', 'Delete', true)) { await removeWatch(w); toast('Deleted'); } }, 0); } },
-    { label: 'Edit', onClick: () => { setTimeout(() => openWatchEditor(w), 0); } },
-    { label: 'Close', kind: 'primary' });
-  openModal({ title: w.name, className: 'tall', content: box, actions });
+  if (!w) return;
+  const modal = document.getElementById('modal');
+  if (modal && modal.open) modal.close();
+  if (!document.getElementById('tab-collection').classList.contains('active')) { location.hash = 'collection/' + w.id; return; }
+  import('./detail.js').then((m) => m.openPage(getWatch(w.id) || w));
 }
+
 // Other stages can add rows to the detail view…
 export const detailExtras = [];
 // …whole sections under the facts (e.g. the watch's own wrist/wear panel)…
@@ -688,7 +663,7 @@ function watchCard(w) {
   if (w.status === 'wishlist') line = w.targetPrice != null ? `Target ${money(w.targetPrice)}` : '';
   else if (w.status === 'sold') line = w.soldPrice != null ? `Sold ${money(w.soldPrice)}` : 'Sold';
   else line = w.value != null ? money(w.value) : w.purchasePrice != null ? `Paid ${money(w.purchasePrice)}` : '';
-  return el('button', { type: 'button', class: 'watch-card', onclick: () => openWatchDetail(w) },
+  return el('button', { type: 'button', class: 'watch-card', 'data-wid': w.id, onclick: () => openWatchDetail(w) },
     img,
     el('div', { class: 'wc-body' },
       el('div', { class: 'wc-name' }, w.name),
@@ -733,7 +708,7 @@ function pressOpen(node, w) {
 function slotEl(w, tier, dim = false) {
   const status = cardLines.map((f) => f(w)).find(Boolean);
   const model = [w.model, w.reference].filter(Boolean).join(' · ') || (w.brand ? w.name.replace(w.brand, '').trim() : '') || w.name;
-  return el('button', { type: 'button', class: `slot tier-${tier}${dim ? ' dim' : ''}`, onclick: (e) => pressOpen(e.currentTarget, w), 'aria-label': w.name },
+  return el('button', { type: 'button', class: `slot tier-${tier}${dim ? ' dim' : ''}`, 'data-wid': w.id, onclick: (e) => pressOpen(e.currentTarget, w), 'aria-label': w.name },
     el('div', { class: 'slot-brand' }, w.brand || w.name),
     el('div', { class: 'slot-cushion' }, faceEl(w)),
     el('div', { class: 'slot-model' }, model),
@@ -843,5 +818,11 @@ export function initCollection() {
   store.on('watches', () => { if (visible) render(); });
   store.on('wear', () => { if (visible) render(); });
 }
-export function showCollection() { visible = true; render(); }
+export function showCollection(sub) {
+  visible = true; render();
+  import('./detail.js').then((m) => {
+    if (sub && getWatch(sub)) m.openPage(getWatch(sub));
+    else if (!sub && m.pageOpenId() && !matchMedia('(min-width: 900px)').matches) m.closePage();
+  });
+}
 export function hideCollection() { visible = false; }

@@ -4,7 +4,7 @@ import * as store from './store.js';
 import { el, confirmModal, toast } from './ui.js';
 import { addPhoto, deletePhoto, fillImg, photoDataUrl } from './photos.js';
 import { detailSections, money, movementLabel, subtitle, SELLER_TYPES, openPhotoViewer, daysWorn, getWatch } from './collection.js';
-import { FEATURE_LABELS } from './watchdb.js';
+import { featuresOf, featureLabel } from './model.js';
 import { watchStats, fmtRate } from './accuracy.js';
 import { showPrintView } from './insurance.js';
 import { APP_NAME } from './config.js';
@@ -40,7 +40,7 @@ const fmtD = (s) => (s ? new Date(s).toLocaleDateString('en-GB', { day: 'numeric
 const fileName = (w, kind) => `${(w.name || 'watch').replace(/[^\w-]+/g, '-').replace(/-+/g, '-')}-${kind}-${new Date().toISOString().slice(0, 10)}.html`;
 
 /* ---------- The checklist on the watch's page ---------- */
-function insSection(w) {
+export function insSection(w, { docButtons = true } = {}) {
   if ((w.status || 'owned') !== 'owned') return null;
   const box = el('div', { class: 'ins-sec' });
   const fileIn = el('input', { type: 'file', accept: 'image/*', hidden: true });
@@ -55,6 +55,9 @@ function insSection(w) {
       const live = getWatch(w.id) || w;
       const old = live.insPhotos?.[slotFor];
       live.insPhotos = { ...(live.insPhotos || {}), [slotFor]: id };
+      const insG = (live.galleryList || []).find((g) => g.id === 'insurance');
+      if (insG) { insG.photoIds = insG.photoIds.filter((x) => x !== old); insG.photoIds.push(id); }
+      (live.photoMeta ||= {})[id] = { taken: Date.now(), note: (INS_SLOTS.find((x) => x[0] === slotFor) || [])[1] || '' };
       if (old) deletePhoto(old).catch(() => {});
       store.save();
       draw();
@@ -88,9 +91,14 @@ function insSection(w) {
               if (yes) {
                 const { [k]: gone, ...rest } = live.insPhotos || {};
                 live.insPhotos = rest; store.save();
-                if (gone) deletePhoto(gone).catch(() => {});
+                if (gone) {
+                  deletePhoto(gone).catch(() => {});
+                  const insG = (live.galleryList || []).find((g) => g.id === 'insurance');
+                  if (insG) insG.photoIds = insG.photoIds.filter((x) => x !== gone);
+                  store.save();
+                }
               }
-              const fresh = getWatch(w.id); if (fresh) setTimeout(() => import('./collection.js').then((m) => m.openWatchDetail(fresh)), 0);
+              draw();
             } }, '×'));
         } else {
           tile.append(el('button', { type: 'button', class: 'ins-add', onclick: () => pick(k), title: tip }, el('span', { class: 'ins-plus' }, '＋'), el('span', { class: 'small muted' }, tip)));
@@ -99,9 +107,9 @@ function insSection(w) {
         if (id) tile.append(el('button', { type: 'button', class: 'link-btn ins-replace', onclick: () => pick(k) }, 'Replace'));
         return tile;
       })),
-      el('div', { class: 'doc-btns' },
+      docButtons ? el('div', { class: 'doc-btns' },
         el('button', { type: 'button', class: 'btn', onclick: () => openDoc(insurancePdf) }, '📄 Insurance PDF'),
-        el('button', { type: 'button', class: 'btn', onclick: () => openDoc(memoryBook) }, '📖 Memory book PDF')),
+        el('button', { type: 'button', class: 'btn', onclick: () => openDoc(memoryBook) }, '📖 Memory book PDF')) : null,
       fileIn);
   }
   draw();
@@ -140,7 +148,7 @@ const facePic = async (w, cls = '') => {
 };
 
 function detailRows(w, { serial = true } = {}) {
-  const feats = Object.keys(FEATURE_LABELS).filter((k) => w[k]).map((k) => FEATURE_LABELS[k]).join(', ');
+  const feats = featuresOf(w).map((id) => featureLabel(d(), id)).join(', ');
   const seller = w.sellerType === 'private' ? 'Private seller' : [w.boughtFrom, (SELLER_TYPES.find((x) => x[0] === w.sellerType) || [])[1]].filter(Boolean).join(' · ');
   return [
     row('Brand', w.brand), row('Model', w.model), row('Reference', w.reference), row('Nickname', w.nickname), row('Year made', w.year),
