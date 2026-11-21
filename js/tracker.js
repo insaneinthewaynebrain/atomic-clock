@@ -47,14 +47,9 @@ async function deleteWatch(w) {
 function mark(w, sign, secs, pos) {
   const s = stamp();
   const offset = sign * secs;
-  const reading = { id: store.uid(), offset, ...s };
-  if (pos) reading.pos = pos;
-  const runs = w.runs.filter((r) => r.readings.length);
-  if (!runs.length) w.runs.push({ id: store.uid(), readings: [reading] });
-  else {
-    const last = (r) => Math.max(...r.readings.map((x) => x.t));
-    runs.reduce((x, y) => (last(y) > last(x) ? y : x)).readings.push(reading);
-  }
+  const first = !(w.readings || []).some((r) => r.source === 'manual');
+  (w.readings ||= []).push({ id: store.uid(), timestamp: s.t, offsetSeconds: offset, source: 'manual', synced: s.synced, acc: s.acc,
+    ...(pos ? { position: pos } : {}), ...(first ? { setToZero: true } : {}) });
   store.save();
   toast(`Marked ${fmtSignedSecs(offset)} at ${fmtDateTime(s.t).split(' ').pop()}${s.synced ? '' : ' (not synced)'}`);
   render();
@@ -65,10 +60,7 @@ function fmtSignedSecs(o) { return o === 0 ? '0 s' : `${signed(o)} s`; }
 async function deleteReading(w, runId, readingId) {
   const ok = await confirmModal('Delete this mark?', 'Rates will be recalculated without it.', 'Delete', true);
   if (!ok) return;
-  const run = w.runs.find((r) => r.id === runId);
-  if (!run) return;
-  run.readings = run.readings.filter((r) => r.id !== readingId);
-  w.runs = w.runs.filter((r) => r.readings.length);
+  w.readings = (w.readings || []).filter((r) => r.id !== readingId);
   store.save();
   render();
 }

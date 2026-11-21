@@ -8,6 +8,7 @@ import { captureFace } from './camera.js';
 import { addWatch } from './addwatch.js';
 export { addWatch };
 import { BRANDS, FEATURE_LABELS, chrono24Url } from './watchdb.js';
+import { photoIdsOf } from './model.js';
 
 /* ---------- Reference lists ---------- */
 export const MOVEMENTS = [
@@ -369,10 +370,8 @@ export function openWatchEditor(watch, opts = {}) {
   });
 }
 
-/** Every stored photo a watch owns: face picture, more photos, insurance photos, gallery photos. */
-export function allPhotoIds(w) {
-  return [...new Set([w.face, ...(w.photos || []), ...Object.values(w.insPhotos || {}), ...Object.values(w.galleries || {}).flat().map((p) => p.id)].filter(Boolean))];
-}
+/** Every stored photo a watch owns: face picture, more photos, galleries, insurance photos and documents. */
+export function allPhotoIds(w) { return photoIdsOf(w); }
 
 export async function removeWatch(w) {
   for (const id of allPhotoIds(w)) await deletePhoto(id).catch(() => {});

@@ -464,6 +464,8 @@ function finishMeasurement() {
     r, at: Date.now(), watchId: w ? w.id : '', bph, seconds: Math.round(Math.min(elapsed, MEASURE_S)),
     beats: runTicks.length, signal: selectInfo, baseline: !!baseline, ticks: all, saved: false,
   };
+  // Saved automatically: no re-entering the result by hand.
+  if (r && w) finalInfo.saved = saveResult(w.id);
   chime();
   keepAwake(false);
   setPhase('result');
@@ -741,10 +743,19 @@ function renderResult() {
     el('div', { class: 'tg-l-lbl' }, lbl), el('div', { class: 'tg-r-val ' + c }, val), note ? el('div', { class: 'tg-r-note' }, note) : null);
   const beVal = el('span', {}, '0.0');
   const watchSel = el('select', { class: 'input', 'aria-label': 'Save to watch' }, watchOptions(finalInfo.watchId));
-  watchSel.addEventListener('change', () => { if (watchSel.value === '__visit') addVisitor((v) => { watchSel.replaceChildren(...watchOptions(v ? v.id : finalInfo.watchId).filter(Boolean)); }); });
-  const saveBtn = el('button', { type: 'button', class: 'btn primary', disabled: finalInfo.saved, onclick: () => {
-    if (saveResult(watchSel.value)) { finalInfo.saved = true; saveBtn.textContent = 'Saved ✓'; saveBtn.disabled = true; }
-  } }, finalInfo.saved ? 'Saved ✓' : 'Save to watch');
+  const syncBtn = () => {
+    const same = finalInfo.saved && watchSel.value === finalInfo.savedTo;
+    saveBtn.textContent = same ? 'Saved automatically ✓' : finalInfo.saved ? 'Move to this watch' : 'Save to watch';
+    saveBtn.disabled = same;
+  };
+  watchSel.addEventListener('change', () => {
+    if (watchSel.value === '__visit') addVisitor((v) => { watchSel.replaceChildren(...watchOptions(v ? v.id : finalInfo.watchId).filter(Boolean)); syncBtn(); });
+    else syncBtn();
+  });
+  const saveBtn = el('button', { type: 'button', class: 'btn primary', onclick: () => {
+    if (saveResult(watchSel.value)) { finalInfo.saved = true; syncBtn(); }
+  } }, '');
+  syncBtn();
   const graph = el('canvas', { class: 'tg-r-canvas', 'aria-label': 'Beat timing trace for the whole measurement' });
 
   box.append(
@@ -906,14 +917,30 @@ function renderLast() {
     el('span', { class: 'tg-last-go' }, 'View ›')));
 }
 
+function unsaveResult() {
+  if (!finalInfo || !finalInfo.savedTo) return;
+  const prev = tgWatch(finalInfo.savedTo);
+  if (prev) {
+    if (prev.visiting) prev.timegrapher = (prev.timegrapher || []).filter((x) => x !== finalInfo.savedRef);
+    else prev.readings = (prev.readings || []).filter((x) => x !== finalInfo.savedRef);
+  }
+  finalInfo.savedTo = null; finalInfo.savedRef = null;
+}
+
 function saveResult(watchId) {
   const r = finalInfo?.r;
   if (!r) return false;
   const w = tgWatch(watchId);
   if (!w) { toast('Choose a watch first'); return false; }
-  (w.timegrapher ||= []).push({ t: finalInfo.at, rate: Math.round(r.rate * 10) / 10, beatError: Math.round(r.beatError * 10) / 10, bph: r.bph, confidence: r.confidence, seconds: finalInfo.seconds });
+  const data = { rate: Math.round(r.rate * 10) / 10, beatError: Math.round(r.beatError * 10) / 10, bph: r.bph, confidence: r.confidence, seconds: finalInfo.seconds };
+  if (w.visiting) (w.timegrapher ||= []).push({ t: finalInfo.at, ...data });
+  // Watch Box watches: one accuracy history, this reading marked as coming from the timegrapher.
+  else (w.readings ||= []).push({ id: store.uid(), timestamp: finalInfo.at, offsetSeconds: null, source: 'timegrapher', timegrapherData: data });
+  // Remember where it went, so choosing another watch on the result screen can move it.
+  unsaveResult();
+  finalInfo.savedTo = w.id; finalInfo.savedRef = w.visiting ? w.timegrapher[w.timegrapher.length - 1] : w.readings[w.readings.length - 1];
   store.save(); store.emit('watches');
-  toast(`Saved to ${w.name}`);
+  toast(`Saved to ${w.name}’s accuracy history`);
   return true;
 }
 
@@ -930,7 +957,9 @@ function visitorBar(w) {
 
 function moveToBox(v) {
   const d = store.get();
-  const w = { id: store.uid(), name: v.name, bph: v.bph, status: 'owned', added: Date.now(), runs: [], photos: [], timegrapher: v.timegrapher || [],
+  const w = { id: store.uid(), name: v.name, bph: v.bph, status: 'owned', added: Date.now(), runs: [], photos: [],
+    readings: (v.timegrapher || []).map((x) => ({ id: store.uid(), timestamp: x.t, offsetSeconds: null, source: 'timegrapher',
+      timegrapherData: { rate: x.rate, beatError: x.beatError, bph: x.bph, confidence: x.confidence, seconds: x.seconds } })),
     notes: v.owner ? `Timed as ${v.owner}’s watch before it joined the Watch Box.` : null };
   d.watches.push(w);
   d.visitors = visitors().filter((x) => x !== v);
@@ -945,7 +974,8 @@ function renderHistory() {
   if (!box) return;
   box.innerHTML = '';
   const w = tgWatch($('tg-watch')?.value);
-  const list = (w?.timegrapher || []).slice().reverse();
+  const list = (w?.visiting ? (w.timegrapher || []) : (w?.readings || []).filter((x) => x.source === 'timegrapher' && x.timegrapherData)
+    .map((x) => ({ ...x.timegrapherData, t: x.timestamp, ref: x }))).slice().sort((a, b) => a.t - b.t).reverse();
   if (w?.visiting) box.append(visitorBar(w));
   if (!list.length) return;
   box.append(el('h3', { class: 'sub-title' }, `Saved results — ${watchLabel(w)}`),
@@ -954,7 +984,7 @@ function renderHistory() {
         el('div', { class: 'hist-when' }, new Date(x.t).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })),
         el('div', { class: 'hist-off' }, `${signed(x.rate, 1)} s/day · beat error ${x.beatError} ms`),
         el('div', { class: 'muted small' }, `${x.bph.toLocaleString('en-GB')} bph · ${x.confidence} confidence · ${x.seconds} s`)),
-      el('button', { type: 'button', class: 'icon-btn sm danger', 'aria-label': 'Delete result', onclick: () => { w.timegrapher = w.timegrapher.filter((y) => y !== x); store.save(); renderHistory(); } }, '×')))));
+      el('button', { type: 'button', class: 'icon-btn sm danger', 'aria-label': 'Delete result', onclick: () => { if (w.visiting) w.timegrapher = w.timegrapher.filter((y) => y !== x); else w.readings = w.readings.filter((y) => y !== x.ref); store.save(); store.emit('watches'); renderHistory(); } }, '×')))));
 }
 
 function render() {
@@ -1002,9 +1032,10 @@ function render() {
 }
 
 function tgDetail(w) {
-  const x = (w.timegrapher || [])[w.timegrapher?.length - 1];
-  if (!x) return null;
-  return el('div', { class: 'fact' }, el('span', { class: 'fact-k' }, 'Timegrapher'), el('span', { class: 'fact-v' }, `${signed(x.rate, 1)} s/day · ${x.beatError} ms (${new Date(x.t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })})`));
+  const r = (w.readings || []).filter((x) => x.source === 'timegrapher' && x.timegrapherData).sort((a, b) => a.timestamp - b.timestamp).pop();
+  if (!r) return null;
+  const x = r.timegrapherData;
+  return el('div', { class: 'fact' }, el('span', { class: 'fact-k' }, 'Timegrapher'), el('span', { class: 'fact-v' }, `${signed(x.rate, 1)} s/day · ${x.beatError} ms (${new Date(r.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })})`));
 }
 
 export function register({ registerTool }) {

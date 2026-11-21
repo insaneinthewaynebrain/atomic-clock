@@ -21,9 +21,26 @@ export function computeRun(run) {
   return { id: run.id, readings, spanDays, totalGain, avg: spanDays > 0 ? totalGain / spanDays : null };
 }
 
+/**
+ * Measuring runs from the watch's readings: a run starts at each "set to zero" (or the first manual reading)
+ * and collects the manual readings after it. Timegrapher readings carry a rate, not an offset, so they
+ * aren't part of runs (see tgReadings).
+ */
+export function runsOf(w) {
+  const runs = [];
+  let cur = null;
+  for (const r of (w.readings || []).slice().sort((a, b) => a.timestamp - b.timestamp)) {
+    if (r.source !== 'manual' || r.offsetSeconds == null) continue;
+    if (r.setToZero || !cur) { cur = { id: r.id, readings: [] }; runs.push(cur); }
+    cur.readings.push({ id: r.id, t: r.timestamp, offset: r.offsetSeconds, pos: r.position, synced: r.synced, setToZero: !!r.setToZero });
+  }
+  return runs;
+}
+export const tgReadings = (w) => (w.readings || []).filter((r) => r.source === 'timegrapher' && r.timegrapherData).sort((a, b) => a.timestamp - b.timestamp);
+
 /** Per-watch summary. Overall average is weighted by elapsed time across runs. */
 export function watchStats(w) {
-  const runs = w.runs.filter((r) => r.readings.length).map(computeRun)
+  const runs = runsOf(w).filter((r) => r.readings.length).map(computeRun)
     .sort((a, b) => a.readings[0].t - b.readings[0].t);
   const cur = runs[runs.length - 1] || null;
   const latest = cur ? cur.readings[cur.readings.length - 1] : null;

@@ -1,4 +1,5 @@
 // All app data lives in one localStorage entry.
+import { migrateWatch } from './model.js';
 const KEY = 'atomic-clock-data-v1';
 
 function defaults() {
@@ -42,7 +43,9 @@ function merge(def, obj) {
     status: w.status || 'owned',
     runs: Array.isArray(w.runs) ? w.runs : [],
     photos: Array.isArray(w.photos) ? w.photos : [],
-  }));
+  })).map(migrateWatch);   // v3: features, categories, readings, value history, locations, galleries (see model.js)
+  if (!Array.isArray(out.customFeatures)) out.customFeatures = [];
+  if (!Array.isArray(out.customCategories)) out.customCategories = [];
   out.version = 2;
   return out;
 }
