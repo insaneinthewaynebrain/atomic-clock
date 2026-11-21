@@ -23,7 +23,7 @@ import { initLock, onLockChange } from './lock.js';
 import { initDetail } from './detail.js';
 import { initBirthdays, checkBirthdays } from './birthday.js';
 
-export const APP_VERSION = '69';
+export const APP_VERSION = '70';
 
 // Feature modules that register their own tabs/tools.
 const EXTRA_MODULES = [wrist, galleries, watchdocs, setting, insurance, timegrapher, alarm];
